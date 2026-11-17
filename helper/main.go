@@ -113,7 +113,7 @@ func findFile(explicit string) (string, error) {
 		return "", err
 	}
 	if len(matches) == 0 {
-		return "", fmt.Errorf("no SavedVariables found (looked in %s) — use -file to set the path", defaultGlob)
+		return "", fmt.Errorf("MunkeHubDB.lua not found yet — log into WoW with the MunkeHub addon enabled, then /reload (or log out) so WoW writes the file, then run this again")
 	}
 	if len(matches) > 1 {
 		return "", fmt.Errorf("multiple WoW accounts found, use -file:\n  %s", strings.Join(matches, "\n  "))
