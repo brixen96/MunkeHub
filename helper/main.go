@@ -44,7 +44,7 @@ import (
 )
 
 // version MUST match helperVersion in api/main.go.
-const version = "0.6.0"
+const version = "0.7.1"
 
 // Matches ["syncJSON"]="..." or syncJSON="..." in the SavedVariables file.
 var syncRe = regexp.MustCompile(`\[?"syncJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
@@ -397,8 +397,15 @@ func main() {
 	}
 	if *token == "" {
 		// First run (generic download): ask once, save for next time
-		fmt.Print("No token found. Paste your personal MunkeHub token (ask Emil): ")
 		reader := bufio.NewReader(os.Stdin)
+		if !apiFromFlag && cfg.API == "" {
+			fmt.Print("MunkeHub server address (e.g. http://1.2.3.4:4712): ")
+			line, _ := reader.ReadString('\n')
+			if s := strings.TrimSpace(line); s != "" {
+				*apiURL = strings.TrimRight(s, "/")
+			}
+		}
+		fmt.Print("No token found. Paste your personal MunkeHub token (ask Emil): ")
 		line, _ := reader.ReadString('\n')
 		*token = strings.TrimSpace(line)
 		if *token == "" {

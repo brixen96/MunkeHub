@@ -98,9 +98,12 @@ local function BuildDetailJSON()
         end
     end
 
+    local name = UnitName("player") or ""
+    local owner = (MunkeHubDB and MunkeHubDB.label) or ""
+    if owner == "" then owner = name end
     return string.format(
-        '{"spec":"%s","zone":"%s","played":%d,"gear":[%s]}',
-        esc(spec), esc(zone), played, table.concat(gear, ","))
+        '{"owner":"%s","name":"%s","spec":"%s","zone":"%s","played":%d,"gear":[%s]}',
+        esc(owner), esc(name), esc(spec), esc(zone), played, table.concat(gear, ","))
 end
 
 local function SyncStats()

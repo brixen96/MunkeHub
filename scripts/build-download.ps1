@@ -47,8 +47,9 @@ MunkeHub setup - Munkeklubben
    need to run any program.
 
 4. OPTIONAL: INSTANT SYNC (one-time setup)
-   a. Double-click munkehub-helper.exe and paste your personal token
-      (ask Emil for it).
+   a. Double-click munkehub-helper.exe. On first run it asks for:
+      - the server address (Emil will give you the link, e.g. http://1.2.3.4:4712)
+      - your personal token (ask Emil for it)
    b. Then type:  munkehub-helper.exe -install
       This makes it start automatically with Windows, silently in the
       background - you never need to open it again.

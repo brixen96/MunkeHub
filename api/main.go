@@ -19,11 +19,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.7.0"
+const version = "0.7.1"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
-const helperVersion = "0.6.0"
+const helperVersion = "0.7.1"
 
 type Announcement struct {
 	ID        int64     `json:"id"`
