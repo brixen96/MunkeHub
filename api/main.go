@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.6.0"
+const version = "0.6.1"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -93,6 +93,10 @@ func main() {
 		// Token minting: only with admin token configured via env.
 		// Rate-limited per IP — brute-forcing the admin token must stay expensive.
 		api.POST("/tokens", mintLimiter(), func(c *gin.Context) { createToken(c, db) })
+
+		// Token management (admin only) — used by the MunkeHub Admin app
+		api.GET("/tokens", requireAdmin(), func(c *gin.Context) { listTokens(c, db) })
+		api.DELETE("/tokens/:id", requireAdmin(), func(c *gin.Context) { revokeToken(c, db) })
 	}
 
 	port := envOr("MUNKEHUB_PORT", "8080")
@@ -230,6 +234,61 @@ func requireMemberOrAdmin(db *sql.DB) gin.HandlerFunc {
 		}
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authorization required"})
 	}
+}
+
+// requireAdmin accepts only the admin token header.
+func requireAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if admin := os.Getenv("MUNKEHUB_ADMIN_TOKEN"); admin != "" && adminTokenEqual(c.GetHeader("X-Admin-Token"), admin) {
+			c.Next()
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin token required"})
+	}
+}
+
+func listTokens(c *gin.Context, db *sql.DB) {
+	rows, err := db.Query(`
+		SELECT t.id, t.label, t.created_at,
+		       (SELECT COUNT(*) FROM characters ch WHERE ch.token_id = t.id)
+		FROM tokens t ORDER BY t.id`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	type tokInfo struct {
+		ID        int64  `json:"id"`
+		Label     string `json:"label"`
+		CreatedAt string `json:"created_at"`
+		Chars     int    `json:"characters"`
+	}
+	out := []tokInfo{}
+	for rows.Next() {
+		var t tokInfo
+		if err := rows.Scan(&t.ID, &t.Label, &t.CreatedAt, &t.Chars); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		out = append(out, t)
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func revokeToken(c *gin.Context, db *sql.DB) {
+	id := c.Param("id")
+	res, err := db.Exec(`DELETE FROM tokens WHERE id = ?`, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "token not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 func createToken(c *gin.Context, db *sql.DB) {

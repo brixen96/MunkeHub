@@ -15,6 +15,10 @@ scripts/pack-config.json
 api/download/*.zip
 api/helper/*.exe
 
+# Admin app
+admin/munkehub-admin.exe
+admin/config.json
+
 # OS
 .DS_Store
 Thumbs.db
