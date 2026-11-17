@@ -27,6 +27,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -92,6 +93,53 @@ func extractField(content []byte, re *regexp.Regexp, field string) (string, erro
 		return "", fmt.Errorf("%s not found in file (has the addon synced yet? /reload in game first)", field)
 	}
 	return unescapeLua(string(m[1])), nil
+}
+
+// --- silent mode: log to file instead of console ---------------------------
+var (
+	silent  bool
+	logFile *os.File
+)
+
+func logf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if silent {
+		if logFile != nil {
+			fmt.Fprintf(logFile, "%s %s\n", time.Now().Format("2006-01-02 15:04:05"), msg)
+		}
+		return
+	}
+	fmt.Println(msg)
+}
+
+// --- auto-start with Windows (HKCU Run key, no admin needed) --------------
+const runKey = `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+const runName = "MunkeHubHelper"
+
+func installSelf(exePath string) error {
+	dir := filepath.Dir(exePath)
+	vbsPath := filepath.Join(dir, "munkehub-helper-hidden.vbs")
+	// VBS launches the exe with NO console window
+	vbs := fmt.Sprintf("CreateObject(\"WScript.Shell\").Run \"\"\"%s\"\" -silent\", 0, False", exePath)
+	if err := os.WriteFile(vbsPath, []byte(vbs), 0644); err != nil {
+		return err
+	}
+	out, err := exec.Command("reg", "add", runKey, "/v", runName, "/t", "REG_SZ",
+		"/d", fmt.Sprintf("wscript.exe \"%s\"", vbsPath), "/f").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("reg add: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func uninstallSelf(exePath string) error {
+	out, err := exec.Command("reg", "delete", runKey, "/v", runName, "/f").CombinedOutput()
+	if err != nil && !strings.Contains(string(out), "unable to find") {
+		return fmt.Errorf("reg delete: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	vbsPath := filepath.Join(filepath.Dir(exePath), "munkehub-helper-hidden.vbs")
+	_ = os.Remove(vbsPath)
+	return nil
 }
 
 // fileConfig is written by scripts/mint-token.ps1 next to the helper exe.
@@ -161,7 +209,41 @@ func main() {
 	file := flag.String("file", "", "path to MunkeHub.lua SavedVariables (default: auto-detect)")
 	interval := flag.Duration("interval", 10*time.Second, "how often to check the file")
 	once := flag.Bool("once", false, "sync once and exit (for testing)")
+	install := flag.Bool("install", false, "start automatically with Windows (hidden, no window)")
+	uninstall := flag.Bool("uninstall", false, "remove automatic startup")
+	silentFlag := flag.Bool("silent", false, "run without console output (log to helper.log)")
 	flag.Parse()
+
+	silent = *silentFlag
+	if silent {
+		exe, _ := os.Executable()
+		logFile, _ = os.OpenFile(filepath.Join(filepath.Dir(exe), "helper.log"),
+			os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		defer func() {
+			if logFile != nil {
+				logFile.Close()
+			}
+		}()
+	}
+
+	exePath, _ := os.Executable()
+	if *install {
+		if err := installSelf(exePath); err != nil {
+			fmt.Println("install failed:", err)
+			os.Exit(1)
+		}
+		fmt.Println("OK - MunkeHub helper now starts automatically with Windows (hidden).")
+		fmt.Println("It runs in the background from now on - nothing to remember.")
+		return
+	}
+	if *uninstall {
+		if err := uninstallSelf(exePath); err != nil {
+			fmt.Println("uninstall failed:", err)
+			os.Exit(1)
+		}
+		fmt.Println("OK - automatic startup removed.")
+		return
+	}
 
 	cfg := loadConfig()
 	if *token == "" {
@@ -178,6 +260,11 @@ func main() {
 	})
 	if !apiFromFlag && cfg.API != "" {
 		*apiURL = cfg.API
+	}
+	if *token == "" && silent {
+		// Never block a background run waiting for input
+		logf("no token configured - run munkehub-helper.exe once in a normal window first")
+		return
 	}
 	if *token == "" {
 		// First run (generic download): ask once, save for next time
@@ -210,7 +297,7 @@ func main() {
 			os.Exit(1)
 		}
 		// Set-and-forget: wait for WoW to write the file instead of exiting
-		fmt.Println("waiting for SavedVariables…", err)
+		logf("waiting for SavedVariables… %v", err)
 		for {
 			time.Sleep(*interval)
 			if p, ferr := findFile(*file); ferr == nil {
@@ -219,12 +306,12 @@ func main() {
 			}
 		}
 	}
-	fmt.Println("watching:", path)
-	fmt.Println("API:     ", *apiURL)
+	logf("watching: %s", path)
+	logf("API:      %s", *apiURL)
 	if tokenFromFlag {
-		fmt.Println("token:   from -token flag")
+		logf("token:    from -token flag")
 	} else {
-		fmt.Println("token:   from config.json")
+		logf("token:    from config.json")
 	}
 
 	var lastMod time.Time
@@ -233,7 +320,7 @@ func main() {
 	sync := func() {
 		info, err := os.Stat(path)
 		if err != nil {
-			fmt.Println("stat error:", err)
+			logf("stat error: %v", err)
 			return
 		}
 		if info.ModTime().Equal(lastMod) && info.Size() == lastSize {
@@ -241,28 +328,28 @@ func main() {
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {
-			fmt.Println("read error:", err)
+			logf("read error: %v", err)
 			return
 		}
 		// 1. Own stats
 		if payload, err := extractField(content, syncRe, "syncJSON"); err == nil && strings.TrimSpace(payload) != "" {
 			if err := post(*apiURL, *token, "/api/v1/characters", payload); err != nil {
-				fmt.Println("post error:", err)
+				logf("post error: %v", err)
 				return // don't update lastMod — retry next tick
 			}
 		} else if err != nil {
-			fmt.Println("skip:", err)
+			logf("skip: %v", err)
 		}
 
 		// 2. Relayed guild members (received in-game via CHAT_MSG_ADDON)
 		if relay, err := extractField(content, relayRe, "relayJSON"); err == nil && strings.TrimSpace(relay) != "" {
 			if err := post(*apiURL, *token, "/api/v1/relay", relay); err != nil {
-				fmt.Println("relay error:", err)
+				logf("relay error: %v", err)
 				return
 			}
 		}
 		lastMod, lastSize = info.ModTime(), info.Size()
-		fmt.Printf("synced at %s\n", time.Now().Format("15:04:05"))
+		logf("synced at %s", time.Now().Format("15:04:05"))
 	}
 
 	sync()

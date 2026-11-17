@@ -100,7 +100,10 @@ MunkeHub setup - Munkeklubben
    Your stats now broadcast to the guild automatically.
 
 4. RUN THE HELPER (optional - for instant sync)
-   Double-click munkehub-helper.exe and leave it running.
+   Double-click munkehub-helper.exe (your token is already inside).
+   Then type:  munkehub-helper.exe -install
+   It starts automatically with Windows from then on, silently in the
+   background - nothing to remember.
    Without it, your stats sync when Emil is online in-game.
 
 5. CHECK THE WEBSITE - your character should appear shortly.
@@ -108,6 +111,7 @@ MunkeHub setup - Munkeklubben
 NOTES
 - Your personal token is inside config.json. Don't share the file.
 - Step 3 alone is enough - nothing else to run.
+- To remove auto-start:  munkehub-helper.exe -uninstall
 - Problems? Ask Emil.
 '@ | Set-Content (Join-Path $stage "README.txt")
 

@@ -40,13 +40,16 @@ MunkeHub setup - Munkeklubben
    Your stats now broadcast to the guild automatically - you do NOT
    need to run any program.
 
-4. OPTIONAL: INSTANT SYNC
-   Double-click munkehub-helper.exe and paste your personal token
-   (ask Emil for it). This uploads your stats immediately instead of
-   waiting for Emil to be online in-game.
+4. OPTIONAL: INSTANT SYNC (one-time setup)
+   a. Double-click munkehub-helper.exe and paste your personal token
+      (ask Emil for it).
+   b. Then type:  munkehub-helper.exe -install
+      This makes it start automatically with Windows, silently in the
+      background - you never need to open it again.
 
 NOTES
 - Step 3 is enough for most people - nothing else to run.
+- To remove auto-start later:  munkehub-helper.exe -uninstall
 - Problems? Ask Emil.
 '@ | Set-Content (Join-Path $stage "README.txt")
 
