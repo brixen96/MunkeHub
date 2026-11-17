@@ -1,6 +1,9 @@
 // MunkeHub helper — watches the WoW SavedVariables file written by the
 // MunkeHub addon and POSTs the character stats to the MunkeHub API.
 //
+// NOTE: WoW names the SavedVariables file after the ADDON FOLDER
+// (MunkeHub.lua), not the ## SavedVariables: variable (MunkeHubDB).
+//
 // WoW addons cannot do HTTP, so the addon stores stats in SavedVariables
 // (written by the client on /reload or logout) and this helper bridges
 // that file to the API.
@@ -28,7 +31,7 @@ import (
 // Matches ["syncJSON"]="..." or syncJSON="..." in the SavedVariables file.
 var syncRe = regexp.MustCompile(`\[?"syncJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
 
-const defaultGlob = `C:\Program Files (x86)\World of Warcraft\_forever_\WTF\Account\*\SavedVariables\MunkeHubDB.lua`
+const defaultGlob = `C:\Program Files (x86)\World of Warcraft\_forever_\WTF\Account\*\SavedVariables\MunkeHub.lua`
 
 func unescapeLua(s string) string {
 	var b strings.Builder
@@ -113,7 +116,7 @@ func findFile(explicit string) (string, error) {
 		return "", err
 	}
 	if len(matches) == 0 {
-		return "", fmt.Errorf("MunkeHubDB.lua not found yet — log into WoW with the MunkeHub addon enabled, then /reload (or log out) so WoW writes the file, then run this again")
+		return "", fmt.Errorf("MunkeHub.lua not found yet — log into WoW with the MunkeHub addon enabled, then /reload (or log out) so WoW writes the file, then run this again")
 	}
 	if len(matches) > 1 {
 		return "", fmt.Errorf("multiple WoW accounts found, use -file:\n  %s", strings.Join(matches, "\n  "))
@@ -146,7 +149,7 @@ func post(apiURL, token, payload string) error {
 func main() {
 	token := flag.String("token", "", "personal token from the MunkeHub admin (required)")
 	apiURL := flag.String("api", "http://localhost:4711", "MunkeHub API base URL")
-	file := flag.String("file", "", "path to MunkeHubDB.lua (default: auto-detect)")
+	file := flag.String("file", "", "path to MunkeHub.lua SavedVariables (default: auto-detect)")
 	interval := flag.Duration("interval", 10*time.Second, "how often to check the file")
 	once := flag.Bool("once", false, "sync once and exit (for testing)")
 	flag.Parse()
