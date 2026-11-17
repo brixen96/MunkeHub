@@ -22,4 +22,5 @@ export const api = {
   guild: () => get("/guild"),
   announcements: () => get("/announcements"),
   createAnnouncement: (data) => post("/announcements", data),
+  characters: () => get("/characters"),
 };

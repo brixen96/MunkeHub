@@ -1,23 +1,38 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 type Announcement struct {
 	ID        int64     `json:"id"`
 	Title     string    `json:"title"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type Character struct {
+	ID        int64     `json:"id"`
+	Owner     string    `json:"owner"`
+	Name      string    `json:"name"`
+	Realm     string    `json:"realm"`
+	Race      string    `json:"race"`
+	Class     string    `json:"class"`
+	Level     int       `json:"level"`
+	ILvl      float64   `json:"ilvl"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func main() {
@@ -53,6 +68,13 @@ func main() {
 	{
 		api.GET("/announcements", func(c *gin.Context) { listAnnouncements(c, db) })
 		api.POST("/announcements", func(c *gin.Context) { createAnnouncement(c, db) })
+
+		// Roster: public read, token-protected write (helper posts with Bearer token)
+		api.GET("/characters", func(c *gin.Context) { listCharacters(c, db) })
+		api.POST("/characters", requireToken(db), func(c *gin.Context) { upsertCharacter(c, db) })
+
+		// Token minting: only with admin token configured via env
+		api.POST("/tokens", func(c *gin.Context) { createToken(c, db) })
 	}
 
 	port := envOr("MUNKEHUB_PORT", "8080")
@@ -69,9 +91,134 @@ func migrate(db *sql.DB) error {
 			title      TEXT NOT NULL,
 			body       TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE IF NOT EXISTS tokens (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			label      TEXT NOT NULL UNIQUE,
+			token      TEXT NOT NULL UNIQUE,
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE IF NOT EXISTS characters (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			token_id   INTEGER NOT NULL REFERENCES tokens(id) ON DELETE CASCADE,
+			name       TEXT NOT NULL,
+			realm      TEXT NOT NULL DEFAULT '',
+			race       TEXT NOT NULL DEFAULT '',
+			class      TEXT NOT NULL DEFAULT '',
+			level      INTEGER NOT NULL DEFAULT 0,
+			ilvl       REAL NOT NULL DEFAULT 0,
+			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE (token_id, name)
 		)`)
 	return err
 }
+
+// --- auth -----------------------------------------------------------------
+
+func requireToken(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h := c.GetHeader("Authorization")
+		if !strings.HasPrefix(h, "Bearer ") {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing bearer token"})
+			return
+		}
+		tok := strings.TrimPrefix(h, "Bearer ")
+		var id int64
+		if err := db.QueryRow(`SELECT id FROM tokens WHERE token = ?`, tok).Scan(&id); err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			return
+		}
+		c.Set("tokenID", id)
+		c.Next()
+	}
+}
+
+func createToken(c *gin.Context, db *sql.DB) {
+	admin := os.Getenv("MUNKEHUB_ADMIN_TOKEN")
+	if admin == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MUNKEHUB_ADMIN_TOKEN not configured"})
+		return
+	}
+	if c.GetHeader("X-Admin-Token") != admin {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "bad admin token"})
+		return
+	}
+	var in struct {
+		Label string `json:"label" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	tok := hex.EncodeToString(raw)
+	if _, err := db.Exec(`INSERT INTO tokens (label, token) VALUES (?, ?)`, in.Label, tok); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"label": in.Label, "token": tok})
+}
+
+// --- characters -----------------------------------------------------------
+
+func listCharacters(c *gin.Context, db *sql.DB) {
+	rows, err := db.Query(`
+		SELECT c.id, t.label, c.name, c.realm, c.race, c.class, c.level, c.ilvl, c.updated_at
+		FROM characters c JOIN tokens t ON t.id = c.token_id
+		ORDER BY c.level DESC, c.name ASC`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	out := []Character{}
+	for rows.Next() {
+		var ch Character
+		var updatedAt string
+		if err := rows.Scan(&ch.ID, &ch.Owner, &ch.Name, &ch.Realm, &ch.Race, &ch.Class, &ch.Level, &ch.ILvl, &updatedAt); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		ch.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+		out = append(out, ch)
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func upsertCharacter(c *gin.Context, db *sql.DB) {
+	var in struct {
+		Name  string  `json:"name" binding:"required"`
+		Realm string  `json:"realm"`
+		Race  string  `json:"race"`
+		Class string  `json:"class"`
+		Level int     `json:"level"`
+		ILvl  float64 `json:"ilvl"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	tokenID := c.GetInt64("tokenID")
+	_, err := db.Exec(`
+		INSERT INTO characters (token_id, name, realm, race, class, level, ilvl, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		ON CONFLICT (token_id, name) DO UPDATE SET
+			realm = excluded.realm, race = excluded.race, class = excluded.class,
+			level = excluded.level, ilvl = excluded.ilvl, updated_at = datetime('now')`,
+		tokenID, in.Name, in.Realm, in.Race, in.Class, in.Level, in.ILvl)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// --- announcements --------------------------------------------------------
 
 func listAnnouncements(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`SELECT id, title, body, created_at FROM announcements ORDER BY id DESC LIMIT 50`)
