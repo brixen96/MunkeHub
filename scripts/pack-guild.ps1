@@ -3,62 +3,84 @@
 #   - helper exe + their personal config.json
 #   - README.txt with setup steps
 #
-# Usage:
-#   .\scripts\pack-guild.ps1 -Label sven
-#   .\scripts\pack-guild.ps1 -Label sven -ApiUrl http://1.2.3.4:4712
+# First run asks for API address + admin token once and saves them to
+# scripts\pack-config.json (gitignored). After that:
 #
-# Prompts for: admin token (never stored), and the API address friends
-# use (defaults to the port-forwarded web port — the helper posts through
-# nginx's /api proxy, so friends never need the LAN-only API port).
+#   .\scripts\pack-guild.ps1 -Label sven
+#
+# is all it takes. Use -Reconfigure to change the saved settings.
 param(
     [Parameter(Mandatory = $true)]
-    [string]$Label,                       # friend's roster label, e.g. "sven"
+    [string]$Label,                        # friend's roster label, e.g. "sven"
 
-    [string]$ApiUrl = "",                 # what THEIR helper should call
-    [string]$MintServer = "http://brixmedia.local:4711"  # LAN API for minting
+    [switch]$Reconfigure,                  # re-prompt and overwrite saved config
+    [string]$ApiUrl = "",                  # override: what THEIR helper calls
+    [string]$MintServer = ""               # override: LAN API for minting
 )
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
+$cfgPath = Join-Path $PSScriptRoot "pack-config.json"
 
-# --- 1. API address for the friend (must be reachable from outside) -------
-if ($ApiUrl -eq "") {
-    $ApiUrl = Read-Host "API address for $Label (e.g. http://<your-public-ip>:4712)"
+# --- 1. Load or create saved config ---------------------------------------
+$cfg = @{}
+if (Test-Path $cfgPath) {
+    $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json -AsHashtable
 }
-$ApiUrl = $ApiUrl.TrimEnd("/")
 
-# --- 2. Admin token (typed by you, never written anywhere) ----------------
-$secure = Read-Host "Admin token (MUNKEHUB_ADMIN_TOKEN)" -AsSecureString
-$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-try { $admin = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
-finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+if ($Reconfigure -or -not $cfg.apiUrl -or -not $cfg.adminToken) {
+    if (-not $ApiUrl) {
+        $ApiUrl = Read-Host "API address friends use (e.g. http://<your-public-ip>:4712)"
+    }
+    if (-not $MintServer) {
+        $MintServer = Read-Host "LAN API for minting (default http://brixmedia.local:4711)"
+        if (-not $MintServer) { $MintServer = "http://brixmedia.local:4711" }
+    }
+    $secure = Read-Host "Admin token (MUNKEHUB_ADMIN_TOKEN)" -AsSecureString
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try { $admin = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 
-# --- 3. Mint the member's token -------------------------------------------
+    $cfg = @{
+        apiUrl     = $ApiUrl.TrimEnd("/")
+        mintServer = $MintServer.TrimEnd("/")
+        adminToken = $admin
+    }
+    $cfg | ConvertTo-Json | Set-Content $cfgPath
+    Write-Host "Settings saved to scripts\pack-config.json (gitignored)" -ForegroundColor Green
+}
+
+# Command-line overrides beat saved config
+if ($ApiUrl)     { $cfg.apiUrl     = $ApiUrl.TrimEnd("/") }
+if ($MintServer) { $cfg.mintServer = $MintServer.TrimEnd("/") }
+
+# --- 2. Mint the member's token -------------------------------------------
 try {
-    $resp = Invoke-RestMethod -Method Post -Uri "$MintServer/api/v1/tokens" `
-        -Headers @{ "X-Admin-Token" = $admin } `
+    $resp = Invoke-RestMethod -Method Post -Uri "$($cfg.mintServer)/api/v1/tokens" `
+        -Headers @{ "X-Admin-Token" = $cfg.adminToken } `
         -ContentType "application/json" `
         -Body (@{ label = $Label } | ConvertTo-Json)
 } catch {
     Write-Host "Mint failed: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Tip: run with -Reconfigure if the admin token or server changed." -ForegroundColor Yellow
     exit 1
 }
 Write-Host "Token minted for '$Label'" -ForegroundColor Green
 
-# --- 4. Build the helper (fresh binary) -----------------------------------
+# --- 3. Build the helper (fresh binary) -----------------------------------
 Push-Location (Join-Path $repo "helper")
 go build -o munkehub-helper.exe .
 if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Host "helper build failed" -ForegroundColor Red; exit 1 }
 Pop-Location
 
-# --- 5. Stage the package -------------------------------------------------
+# --- 4. Stage the package -------------------------------------------------
 $stage = Join-Path $repo "dist\stage-$Label"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
 Copy-Item (Join-Path $repo "addon\MunkeHub") (Join-Path $stage "MunkeHub") -Recurse
 Copy-Item (Join-Path $repo "helper\munkehub-helper.exe") $stage
-@{ api = $ApiUrl; token = $resp.token } | ConvertTo-Json | Set-Content (Join-Path $stage "config.json")
+@{ api = $cfg.apiUrl; token = $resp.token } | ConvertTo-Json | Set-Content (Join-Path $stage "config.json")
 
 @'
 MunkeHub setup - Munkeklubben
@@ -87,7 +109,7 @@ NOTES
 - Problems? Ask Emil.
 '@ | Set-Content (Join-Path $stage "README.txt")
 
-# --- 6. Zip it -----------------------------------------------------------
+# --- 5. Zip it -----------------------------------------------------------
 $zip = Join-Path $repo "dist\MunkeHub-$Label.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path "$stage\*" -DestinationPath $zip
@@ -96,3 +118,4 @@ Remove-Item $stage -Recurse -Force
 Write-Host ""
 Write-Host "Package ready: $zip" -ForegroundColor Green
 Write-Host "Send it to $Label - they just extract and follow README.txt."
+explorer.exe (Join-Path $repo "dist") | Out-Null  # open the folder for you
