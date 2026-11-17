@@ -6,6 +6,9 @@ api/*.db
 node_modules/
 web/dist/
 
+# Build logs
+build-push.log
+
 # OS
 .DS_Store
 Thumbs.db
