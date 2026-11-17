@@ -1,6 +1,8 @@
 # MunkeHub — Portainer Stack
 # Portainer → Stacks → Add stack → paste this → Deploy the stack
 # Private: Munkeklubben only. Port 4711 is port-forwarded on Emil's router.
+# Data lives on the NVMe share next to the WoW server:
+#   /mnt/NVMEShare/NVMEShare/gameservers/wow-munkeklubben/munkehub/data/
 
 services:
   api:
@@ -12,8 +14,5 @@ services:
       - MUNKEHUB_PORT=8080
       - MUNKEHUB_DB=/data/munkehub.db
     volumes:
-      - munkehub-data:/data
+      - /mnt/NVMEShare/NVMEShare/gameservers/wow-munkeklubben/munkehub/data:/data
     restart: unless-stopped
-
-volumes:
-  munkehub-data:
