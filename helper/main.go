@@ -2,8 +2,9 @@
 // MunkeHub addon and POSTs the character stats to the MunkeHub API.
 //
 // Two payloads:
-//   syncJSON  — own character stats        -> POST /api/v1/characters
-//   relayJSON — guild members received in-game -> POST /api/v1/relay
+//
+//	syncJSON  — own character stats        -> POST /api/v1/characters
+//	relayJSON — guild members received in-game -> POST /api/v1/relay
 //
 // NOTE: WoW names the SavedVariables file after the ADDON FOLDER
 // (MunkeHub.lua), not the ## SavedVariables: variable (MunkeHubDB).

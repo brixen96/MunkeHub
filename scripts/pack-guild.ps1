@@ -94,18 +94,20 @@ MunkeHub setup - Munkeklubben
    At character select, click "AddOns" (bottom left) and make sure
    MunkeHub is ticked.
 
-3. LOG IN, then type:  /reload
-   This saves your character stats to disk.
+3. SET YOUR LABEL (once)
+   Log in and type:  /mh label <yourname>
+   Then type:  /reload
+   Your stats now broadcast to the guild automatically.
 
-4. RUN THE HELPER
-   Double-click munkehub-helper.exe and leave it running (you can
-   minimize the window). It uploads your stats automatically.
+4. RUN THE HELPER (optional - for instant sync)
+   Double-click munkehub-helper.exe and leave it running.
+   Without it, your stats sync when Emil is online in-game.
 
-5. CHECK THE WEBSITE - your character should appear within ~10 seconds.
+5. CHECK THE WEBSITE - your character should appear shortly.
 
 NOTES
 - Your personal token is inside config.json. Don't share the file.
-- The helper must keep running while you play for stats to update.
+- Step 3 alone is enough - nothing else to run.
 - Problems? Ask Emil.
 '@ | Set-Content (Join-Path $stage "README.txt")
 
