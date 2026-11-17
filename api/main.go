@@ -120,7 +120,17 @@ func migrate(db *sql.DB) error {
 			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 			UNIQUE (token_id, name)
 		)`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Upgrade pre-0.5.0 databases: CREATE TABLE IF NOT EXISTS won't add
+	// columns to tables that already exist.
+	if _, err := db.Exec(`ALTER TABLE characters ADD COLUMN owner TEXT NOT NULL DEFAULT ''`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
+	return nil
 }
 
 // --- auth -----------------------------------------------------------------
