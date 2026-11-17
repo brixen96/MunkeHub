@@ -6,7 +6,8 @@
 // that file to the API.
 //
 // Usage:
-//   munkehub-helper.exe -token <your-personal-token> [-api http://server:4711] [-file <path>] [-once]
+//
+//	munkehub-helper.exe -token <your-personal-token> [-api http://server:4711] [-file <path>] [-once]
 package main
 
 import (

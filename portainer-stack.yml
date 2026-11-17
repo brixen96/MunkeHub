@@ -15,6 +15,9 @@ services:
     environment:
       - MUNKEHUB_PORT=8080
       - MUNKEHUB_DB=/data/munkehub.db
+      # Admin token: used to mint per-member tokens (POST /api/v1/tokens).
+      # CHANGE THIS to your own secret before deploying!
+      - MUNKEHUB_ADMIN_TOKEN=LEsfAcdEfTMU1BMzx15quKliFbEoWJ6SOzEaLEDakeeYBIKexUfwwQqb2zSZbrhk
     volumes:
       - /mnt/NVMEShare/NVMEShare/gameservers/wow-munkeklubben/munkehub/data:/data
     restart: unless-stopped
