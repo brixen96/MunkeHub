@@ -11,23 +11,6 @@ local function Print(msg)
 end
 
 -- ---------------------------------------------------------------------------
--- Core frame: load SavedVariables, then we're ready
--- ---------------------------------------------------------------------------
-local core = CreateFrame("Frame", "MunkeHubFrame", UIParent)
-core:RegisterEvent("ADDON_LOADED")
-core:SetScript("OnEvent", function(self, event, ...)
-    if event ~= "ADDON_LOADED" or ... ~= ADDON_NAME then return end
-
-    MunkeHubDB = MunkeHubDB or {}
-    for k, v in pairs(defaults) do
-        if MunkeHubDB[k] == nil then MunkeHubDB[k] = v end
-    end
-
-    self:UnregisterEvent("ADDON_LOADED")
-    Print("loaded — type /munkehub for commands.")
-end)
-
--- ---------------------------------------------------------------------------
 -- Stats collection — stored in SavedVariables, picked up by the helper exe
 -- (WoW addons cannot do HTTP, so the helper bridges file -> API)
 -- ---------------------------------------------------------------------------
@@ -55,6 +38,29 @@ local function SyncStats()
     MunkeHubDB.syncJSON = BuildSyncJSON()
     Print("stats saved — the MunkeHub helper will upload them (or /reload to flush now).")
 end
+
+-- ---------------------------------------------------------------------------
+-- Core frame: load SavedVariables, then we're ready
+-- ---------------------------------------------------------------------------
+local core = CreateFrame("Frame", "MunkeHubFrame", UIParent)
+core:RegisterEvent("ADDON_LOADED")
+core:RegisterEvent("PLAYER_ENTERING_WORLD")
+core:SetScript("OnEvent", function(self, event, ...)
+    if event == "PLAYER_ENTERING_WORLD" then
+        -- silently refresh stats; WoW writes them to disk on /reload or logout
+        if MunkeHubDB then MunkeHubDB.syncJSON = BuildSyncJSON() end
+        return
+    end
+    if event ~= "ADDON_LOADED" or ... ~= ADDON_NAME then return end
+
+    MunkeHubDB = MunkeHubDB or {}
+    for k, v in pairs(defaults) do
+        if MunkeHubDB[k] == nil then MunkeHubDB[k] = v end
+    end
+
+    self:UnregisterEvent("ADDON_LOADED")
+    Print("loaded — type /munkehub for commands.")
+end)
 
 -- ---------------------------------------------------------------------------
 -- Slash commands

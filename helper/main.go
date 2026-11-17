@@ -12,6 +12,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -81,6 +82,28 @@ func extractPayload(content []byte) (string, error) {
 	return unescapeLua(string(m[1])), nil
 }
 
+// fileConfig is written by scripts/mint-token.ps1 next to the helper exe.
+type fileConfig struct {
+	API   string `json:"api"`
+	Token string `json:"token"`
+}
+
+func loadConfig() fileConfig {
+	var cfg fileConfig
+	paths := []string{"config.json"}
+	if exe, err := os.Executable(); err == nil {
+		paths = append([]string{filepath.Join(filepath.Dir(exe), "config.json")}, paths...)
+	}
+	for _, p := range paths {
+		if b, err := os.ReadFile(p); err == nil {
+			if json.Unmarshal(b, &cfg) == nil && (cfg.API != "" || cfg.Token != "") {
+				return cfg
+			}
+		}
+	}
+	return cfg
+}
+
 func findFile(explicit string) (string, error) {
 	if explicit != "" {
 		return explicit, nil
@@ -128,8 +151,24 @@ func main() {
 	once := flag.Bool("once", false, "sync once and exit (for testing)")
 	flag.Parse()
 
+	cfg := loadConfig()
 	if *token == "" {
-		fmt.Fprintln(os.Stderr, "error: -token is required")
+		*token = cfg.Token
+	}
+	tokenFromFlag, apiFromFlag := false, false
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "token":
+			tokenFromFlag = true
+		case "api":
+			apiFromFlag = true
+		}
+	})
+	if !apiFromFlag && cfg.API != "" {
+		*apiURL = cfg.API
+	}
+	if *token == "" {
+		fmt.Fprintln(os.Stderr, "error: no token — run scripts\\mint-token.ps1 or pass -token")
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -141,6 +180,11 @@ func main() {
 	}
 	fmt.Println("watching:", path)
 	fmt.Println("API:     ", *apiURL)
+	if tokenFromFlag {
+		fmt.Println("token:   from -token flag")
+	} else {
+		fmt.Println("token:   from config.json")
+	}
 
 	var lastMod time.Time
 	var lastSize int64
@@ -162,6 +206,10 @@ func main() {
 		payload, err := extractPayload(content)
 		if err != nil {
 			fmt.Println("skip:", err)
+			return
+		}
+		if strings.TrimSpace(payload) == "" {
+			fmt.Println("skip: syncJSON is empty — run /mh sync in game, then /reload")
 			return
 		}
 		if err := post(*apiURL, *token, payload); err != nil {
