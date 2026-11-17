@@ -1,0 +1,6 @@
+## Interface: 16001
+## Title: MunkeHub
+## Notes: Guild hub addon for Munkeklubben - connects to the MunkeHub API
+## Author: Emil Brix
+## Version: 0.1.0
+## SavedVariables: MunkeHubDB

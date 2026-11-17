@@ -1,0 +1,13 @@
+# MunkeHub — self-hosted on Emil's home Linux server, port-forwarded for Munkeklubben.
+# Private, friends-only. Services build once api/ and web/ scaffolds exist.
+services:
+  api:
+    build: ./api
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+  web:
+    build: ./web
+    ports:
+      - "8081:80"
+    restart: unless-stopped
