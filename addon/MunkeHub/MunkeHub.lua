@@ -2,7 +2,7 @@
 local ADDON_NAME = ...
 
 local defaults = {
-    apiURL = "",   -- set via: /munkehub url http://host:port
+    apiURL = "",   -- legacy (unused — the helper handles the API address)
     syncJSON = "", -- stats payload read by the MunkeHub helper (SavedVariables)
 }
 
@@ -67,9 +67,8 @@ end)
 -- ---------------------------------------------------------------------------
 local function ShowHelp()
     Print("commands:")
-    print("  |cffffffff/munkehub status|r            show current config")
-    print("  |cffffffff/munkehub sync|r              save character stats for the helper to upload")
-    print("  |cffffffff/munkehub url <address>|r     set API address (http://host:port)")
+    print("  |cffffffff/munkehub status|r            show sync status")
+    print("  |cffffffff/munkehub sync|r              save character stats now")
 end
 
 SLASH_MUNKEHUB1 = "/munkehub"
@@ -78,14 +77,16 @@ SlashCmdList["MUNKEHUB"] = function(msg)
     local cmd, rest = strmatch(msg or "", "^%s*(%S+)%s*(.-)%s*$")
     cmd = cmd and strlower(cmd)
 
-    if cmd == "url" and rest ~= "" then
-        MunkeHubDB.apiURL = rest
-        Print("API set to " .. rest)
-    elseif cmd == "sync" then
+    if cmd == "sync" then
         SyncStats()
     elseif cmd == "status" then
-        local url = MunkeHubDB.apiURL
-        Print("API: " .. (url ~= "" and url or "|cffff4444(not set)|r"))
+        local payload = MunkeHubDB and MunkeHubDB.syncJSON or ""
+        if payload ~= "" then
+            Print("stats: |cffffffff" .. payload:sub(1, 60) .. "...|r")
+            Print("saved — helper uploads it. /reload or logout writes it to disk.")
+        else
+            Print("stats: |cffff4444not saved yet|r — type /mh sync")
+        end
     else
         ShowHelp()
     end
