@@ -52,6 +52,9 @@ var syncRe = regexp.MustCompile(`\[?"syncJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
 // Matches ["relayJSON"]="..." (array of relayed guild members).
 var relayRe = regexp.MustCompile(`\[?"relayJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
 
+// Matches ["detailJSON"]="..." (spec/zone/gear detail for expandable rows).
+var detailRe = regexp.MustCompile(`\[?"detailJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
+
 const defaultGlob = `C:\Program Files (x86)\World of Warcraft\_forever_\WTF\Account\*\SavedVariables\MunkeHub.lua`
 
 func unescapeLua(s string) string {
@@ -472,6 +475,14 @@ func main() {
 		if relay, err := extractField(content, relayRe, "relayJSON"); err == nil && strings.TrimSpace(relay) != "" {
 			if err := post(*apiURL, *token, "/api/v1/relay", relay); err != nil {
 				logf("relay error: %v", err)
+				return
+			}
+		}
+
+		// 3. Own character detail (spec/zone/gear) — helper path only
+		if detail, err := extractField(content, detailRe, "detailJSON"); err == nil && strings.TrimSpace(detail) != "" {
+			if err := post(*apiURL, *token, "/api/v1/characters/detail", detail); err != nil {
+				logf("detail error: %v", err)
 				return
 			}
 		}

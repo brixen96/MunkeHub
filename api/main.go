@@ -6,7 +6,9 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -17,7 +19,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.6.1"
+const version = "0.7.0"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -39,6 +41,10 @@ type Character struct {
 	Class     string    `json:"class"`
 	Level     int       `json:"level"`
 	ILvl      float64   `json:"ilvl"`
+	Spec      string    `json:"spec"`
+	Zone      string    `json:"zone"`
+	Played    int       `json:"played"` // seconds
+	Detail    string    `json:"detail"` // gear JSON array (empty if not synced)
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -82,6 +88,12 @@ func main() {
 
 		// Guild relay: Emil's helper uploads everyone received in-game
 		api.POST("/relay", requireToken(db), func(c *gin.Context) { relayCharacters(c, db) })
+
+		// Character detail (spec/zone/gear) — helper path only
+		api.POST("/characters/detail", requireToken(db), func(c *gin.Context) { upsertDetail(c, db) })
+
+		// Dashboard stats
+		api.GET("/stats", func(c *gin.Context) { guildStats(c, db) })
 
 		// Generic setup package (NO token inside) for the website Download button
 		api.GET("/download", func(c *gin.Context) { serveDownload(c) })
@@ -130,6 +142,10 @@ func migrate(db *sql.DB) error {
 			class      TEXT NOT NULL DEFAULT '',
 			level      INTEGER NOT NULL DEFAULT 0,
 			ilvl       REAL NOT NULL DEFAULT 0,
+			spec       TEXT NOT NULL DEFAULT '',
+			zone       TEXT NOT NULL DEFAULT '',
+			played     INTEGER NOT NULL DEFAULT 0,
+			detail     TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 			UNIQUE (token_id, name)
 		)`)
@@ -137,11 +153,19 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 
-	// Upgrade pre-0.5.0 databases: CREATE TABLE IF NOT EXISTS won't add
-	// columns to tables that already exist.
-	if _, err := db.Exec(`ALTER TABLE characters ADD COLUMN owner TEXT NOT NULL DEFAULT ''`); err != nil &&
-		!strings.Contains(err.Error(), "duplicate column") {
-		return err
+	// Upgrade older databases: CREATE TABLE IF NOT EXISTS won't add columns
+	// to tables that already exist.
+	for _, alter := range []string{
+		`ALTER TABLE characters ADD COLUMN owner TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE characters ADD COLUMN spec TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE characters ADD COLUMN zone TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE characters ADD COLUMN played INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE characters ADD COLUMN detail TEXT NOT NULL DEFAULT ''`,
+	} {
+		if _, err := db.Exec(alter); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column") {
+			return err
+		}
 	}
 	return nil
 }
@@ -326,7 +350,8 @@ func createToken(c *gin.Context, db *sql.DB) {
 func listCharacters(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`
 		SELECT c.id, CASE WHEN c.owner != '' THEN c.owner ELSE t.label END,
-		       c.name, c.realm, c.race, c.class, c.level, c.ilvl, c.updated_at
+		       c.name, c.realm, c.race, c.class, c.level, c.ilvl,
+		       c.spec, c.zone, c.played, c.detail, c.updated_at
 		FROM characters c JOIN tokens t ON t.id = c.token_id
 		ORDER BY c.level DESC, c.name ASC`)
 	if err != nil {
@@ -339,7 +364,8 @@ func listCharacters(c *gin.Context, db *sql.DB) {
 	for rows.Next() {
 		var ch Character
 		var updatedAt string
-		if err := rows.Scan(&ch.ID, &ch.Owner, &ch.Name, &ch.Realm, &ch.Race, &ch.Class, &ch.Level, &ch.ILvl, &updatedAt); err != nil {
+		if err := rows.Scan(&ch.ID, &ch.Owner, &ch.Name, &ch.Realm, &ch.Race, &ch.Class,
+			&ch.Level, &ch.ILvl, &ch.Spec, &ch.Zone, &ch.Played, &ch.Detail, &updatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -347,6 +373,73 @@ func listCharacters(c *gin.Context, db *sql.DB) {
 		out = append(out, ch)
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// upsertDetail stores spec/zone/gear detail for the caller's own character.
+func upsertDetail(c *gin.Context, db *sql.DB) {
+	var in struct {
+		Owner  string `json:"owner"`
+		Name   string `json:"name" binding:"required"`
+		Spec   string `json:"spec"`
+		Zone   string `json:"zone"`
+		Played int    `json:"played"`
+		Gear   []struct {
+			Slot string `json:"slot"`
+			Name string `json:"name"`
+			ILvl int    `json:"ilvl"`
+			Q    int    `json:"q"`
+		} `json:"gear"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	gearJSON, _ := json.Marshal(in.Gear)
+	tokenID := c.GetInt64("tokenID")
+	_, err := db.Exec(`
+		UPDATE characters SET spec = ?, zone = ?, played = ?, detail = ?, updated_at = datetime('now')
+		WHERE token_id = ? AND name = ?`,
+		in.Spec, in.Zone, in.Played, string(gearJSON), tokenID, in.Name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// guildStats powers the dashboard cards.
+func guildStats(c *gin.Context, db *sql.DB) {
+	var count, totalLevel int
+	var avgILvl float64
+	_ = db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(level),0), COALESCE(AVG(ilvl),0) FROM characters`).
+		Scan(&count, &totalLevel, &avgILvl)
+
+	type classCount struct {
+		Class string `json:"class"`
+		Count int    `json:"count"`
+	}
+	rows, _ := db.Query(`SELECT class, COUNT(*) FROM characters GROUP BY class ORDER BY COUNT(*) DESC`)
+	classes := []classCount{}
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var cc classCount
+			if rows.Scan(&cc.Class, &cc.Count) == nil {
+				classes = append(classes, cc)
+			}
+		}
+	}
+
+	avgLevel := 0.0
+	if count > 0 {
+		avgLevel = float64(totalLevel) / float64(count)
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"characters": count,
+		"avg_level":  math.Round(avgLevel*10) / 10,
+		"avg_ilvl":   math.Round(avgILvl*10) / 10,
+		"classes":    classes,
+	})
 }
 
 type charIn struct {

@@ -35,8 +35,34 @@
     <main>
       <!-- ================= ROSTER ================= -->
       <section v-show="tab === 'roster'">
+        <!-- dashboard cards -->
+        <div class="dash" v-if="stats">
+          <div class="dash-card">
+            <span class="dash-num">{{ stats.characters }}</span>
+            <span class="dash-label">Characters</span>
+          </div>
+          <div class="dash-card">
+            <span class="dash-num">{{ stats.avg_level }}</span>
+            <span class="dash-label">Avg level</span>
+          </div>
+          <div class="dash-card">
+            <span class="dash-num">{{ stats.avg_ilvl }}</span>
+            <span class="dash-label">Avg iLvl</span>
+          </div>
+          <div class="dash-card">
+            <span class="dash-num">{{ stats.classes.length }}</span>
+            <span class="dash-label">Classes</span>
+          </div>
+        </div>
+        <div class="classbar" v-if="stats && stats.classes.length">
+          <span v-for="cc in stats.classes" :key="cc.class"
+                class="class-chip" :class="classSlug(cc.class)">
+            {{ cc.class }} ×{{ cc.count }}
+          </span>
+        </div>
+
         <div class="panel">
-          <h2 class="panel-title">Characters</h2>
+          <h2 class="panel-title">Characters <span class="hint">— click a row to expand</span></h2>
           <p v-if="charError" class="error">Could not load the roster.</p>
           <p v-else-if="!characters" class="muted">Loading…</p>
           <p v-else-if="characters.length === 0" class="muted">
@@ -55,24 +81,62 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="c in characters" :key="c.id">
-                <td data-label="Character">
-                  <span class="char-name" :class="classSlug(c.class)">
-                    {{ c.name }}
-                  </span>
-                  <span class="realm">{{ c.realm }}</span>
-                </td>
-                <td data-label="Race">{{ c.race }}</td>
-                <td data-label="Class" :class="classSlug(c.class)">
-                  {{ c.class }}
-                </td>
-                <td data-label="Lvl" class="lvl">{{ c.level }}</td>
-                <td data-label="iLvl">{{ c.ilvl }}</td>
-                <td data-label="Owner" class="owner">{{ c.owner }}</td>
-                <td data-label="Updated" class="when">
-                  {{ formatDate(c.updated_at) }}
-                </td>
-              </tr>
+              <template v-for="c in characters" :key="c.id">
+                <tr class="clickable" @click="toggleRow(c.id)">
+                  <td data-label="Character">
+                    <span class="chevron" :class="{ open: openRow === c.id }">▸</span>
+                    <span class="char-name" :class="classSlug(c.class)">
+                      {{ c.name }}
+                    </span>
+                    <span class="realm">{{ c.realm }}</span>
+                  </td>
+                  <td data-label="Race">{{ c.race }}</td>
+                  <td data-label="Class" :class="classSlug(c.class)">
+                    {{ c.class }}
+                  </td>
+                  <td data-label="Lvl" class="lvl">{{ c.level }}</td>
+                  <td data-label="iLvl">{{ c.ilvl }}</td>
+                  <td data-label="Owner" class="owner">{{ c.owner }}</td>
+                  <td data-label="Updated" class="when">
+                    {{ formatDate(c.updated_at) }}
+                  </td>
+                </tr>
+                <tr v-if="openRow === c.id" class="detail-row">
+                  <td colspan="7">
+                    <div class="detail-panel">
+                      <div class="detail-core">
+                        <div class="detail-item">
+                          <span class="detail-k">Spec</span>
+                          <span class="detail-v">{{ c.spec || '—' }}</span>
+                        </div>
+                        <div class="detail-item">
+                          <span class="detail-k">Zone</span>
+                          <span class="detail-v">{{ c.zone || '—' }}</span>
+                        </div>
+                        <div class="detail-item">
+                          <span class="detail-k">Played</span>
+                          <span class="detail-v">{{ formatPlayed(c) }}</span>
+                        </div>
+                        <div class="detail-item">
+                          <span class="detail-k">Owner</span>
+                          <span class="detail-v">{{ c.owner }}</span>
+                        </div>
+                      </div>
+                      <div v-if="parseGear(c).length" class="gear-grid">
+                        <div v-for="g in parseGear(c)" :key="g.slot" class="gear-slot"
+                             :class="'q' + g.q" :title="g.name">
+                          <span class="gear-slot-name">{{ g.slot }}</span>
+                          <span class="gear-item">{{ g.name || 'empty' }}</span>
+                          <span class="gear-ilvl">{{ g.ilvl || '' }}</span>
+                        </div>
+                      </div>
+                      <p v-else class="muted small">
+                        No gear detail yet — /reload in game, then the helper uploads it.
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -257,6 +321,8 @@ export default {
   data() {
     return {
       tab: "roster",
+      openRow: null,
+      stats: null,
       guild: null,
       guildError: false,
       announcements: null,
@@ -287,6 +353,11 @@ export default {
     } catch {
       this.charError = true;
     }
+    try {
+      this.stats = await api.stats();
+    } catch {
+      this.stats = null;
+    }
   },
   methods: {
     formatDate(iso) {
@@ -295,6 +366,22 @@ export default {
     },
     classSlug(cls) {
       return "c-" + (cls || "").toLowerCase().replace(/[^a-z]/g, "");
+    },
+    toggleRow(id) {
+      this.openRow = this.openRow === id ? null : id;
+    },
+    parseGear(c) {
+      if (!c.detail) return [];
+      try {
+        const d = JSON.parse(c.detail);
+        return Array.isArray(d) ? d : [];
+      } catch {
+        return [];
+      }
+    },
+    formatPlayed(c) {
+      const h = Math.floor((c.played || 0) / 3600);
+      return h > 0 ? h + "h" : "—";
     },
     async postAnnouncement() {
       this.posting = true;
@@ -553,6 +640,58 @@ main {
   padding-bottom: 0.6rem;
 }
 
+/* ---------------- dashboard ---------------- */
+.dash {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
+}
+.dash-card {
+  background: var(--stone);
+  border: 1px solid var(--edge);
+  border-top: 2px solid var(--gold);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+.dash-num {
+  font-family: Georgia, serif;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--gold-bright);
+}
+.dash-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.classbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+.class-chip {
+  background: var(--stone);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 0.22rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: inherit;
+}
+
 /* ---------------- roster ---------------- */
 .roster {
   width: 100%;
@@ -574,6 +713,83 @@ main {
 }
 .roster tbody tr:hover {
   background: rgba(255, 255, 255, 0.03);
+}
+.roster tr.clickable {
+  cursor: pointer;
+}
+.chevron {
+  display: inline-block;
+  width: 1em;
+  color: var(--gold);
+  transition: transform 0.15s;
+}
+.chevron.open {
+  transform: rotate(90deg);
+}
+
+/* ---------------- expandable detail ---------------- */
+.detail-row td {
+  padding: 0 !important;
+  border-bottom: 1px solid var(--edge);
+}
+.detail-panel {
+  background: #16151a;
+  border-left: 3px solid var(--gold);
+  padding: 0.9rem 1.1rem;
+}
+.detail-core {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+.detail-item {
+  display: flex;
+  flex-direction: column;
+}
+.detail-k {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.detail-v {
+  color: var(--ink);
+  font-weight: 600;
+}
+.gear-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 0.45rem;
+}
+.gear-slot {
+  background: var(--stone);
+  border: 1px solid var(--edge);
+  border-left: 3px solid #6b7480;
+  border-radius: 5px;
+  padding: 0.35rem 0.55rem;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.gear-slot.q4 { border-left-color: #ff8000; }  /* epic */
+.gear-slot.q3 { border-left-color: #a335ee; }  /* rare */
+.gear-slot.q2 { border-left-color: #1eff00; }  /* uncommon */
+.gear-slot-name {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.gear-item {
+  font-size: 0.8rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gear-ilvl {
+  font-size: 0.7rem;
+  color: var(--gold-bright);
 }
 .char-name {
   font-weight: 700;
@@ -739,5 +955,10 @@ footer {
     text-transform: uppercase;
   }
   .realm { display: inline; margin-left: 0.4rem; }
+
+  /* detail row spans full width, no fake label */
+  .detail-row td { display: block; }
+  .detail-row td::before { display: none; }
+  .dash { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

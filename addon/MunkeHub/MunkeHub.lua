@@ -13,6 +13,7 @@ local BROADCAST_INTERVAL = 300    -- seconds between guild broadcasts
 local defaults = {
     apiURL = "",     -- legacy (unused — the helper handles the API address)
     syncJSON = "",   -- own stats payload (read by the helper)
+    detailJSON = "", -- deep detail: spec/zone/gear (helper path ONLY — too big for relay)
     relayJSON = "",  -- relayed guild stats array (read by the helper)
     label = "",      -- roster owner label, set via: /mh label sven
 }
@@ -47,8 +48,64 @@ local function BuildSyncJSON()
         esc(owner), esc(name), esc(realm), esc(race), esc(class), level, tostring(ilvl))
 end
 
+-- Deep detail for the expandable roster rows. NEVER relayed (240-byte cap) —
+-- only the helper uploads this via SavedVariables.
+local GEAR_SLOTS = {
+    [1] = "Head", [2] = "Neck", [3] = "Shoulder", [5] = "Chest",
+    [6] = "Waist", [7] = "Legs", [8] = "Feet", [9] = "Wrist",
+    [10] = "Hands", [15] = "Back", [16] = "MainHand", [17] = "OffHand",
+}
+
+local function BuildDetailJSON()
+    local function esc(s)
+        return (tostring(s):gsub('[\\"]', function(c) return "\\" .. c end))
+    end
+
+    -- specialization
+    local spec = ""
+    if GetSpecialization then
+        local idx = GetSpecialization()
+        if idx then
+            local _, name = GetSpecializationInfo(idx)
+            spec = name or ""
+        end
+    end
+
+    -- location
+    local zone = GetZoneText() or ""
+
+    -- played time (seconds)
+    local played = 0
+    if GetPlayedTime then played = GetPlayedTime() or 0 end
+
+    -- gear: slot, name, ilvl, quality
+    local gear = {}
+    for slot, slotName in pairs(GEAR_SLOTS) do
+        local link = GetInventoryItemLink("player", slot)
+        if link then
+            local name = link:match("|h%[(.-)%]|h") or ""
+            local ilvl = 0
+            if GetInventoryItemLevel then
+                ilvl = GetInventoryItemLevel("player", slot) or 0
+            end
+            local q = 0
+            if GetInventoryItemQuality then
+                q = GetInventoryItemQuality("player", slot) or 0
+            end
+            gear[#gear + 1] = string.format(
+                '{"slot":"%s","name":"%s","ilvl":%d,"q":%d}',
+                esc(slotName), esc(name), ilvl, q)
+        end
+    end
+
+    return string.format(
+        '{"spec":"%s","zone":"%s","played":%d,"gear":[%s]}',
+        esc(spec), esc(zone), played, table.concat(gear, ","))
+end
+
 local function SyncStats()
     MunkeHubDB.syncJSON = BuildSyncJSON()
+    MunkeHubDB.detailJSON = BuildDetailJSON()
     Print("stats saved — the helper uploads them (or /reload to flush now).")
 end
 
@@ -112,7 +169,10 @@ core:SetScript("OnEvent", function(self, event, ...)
 
     if event == "PLAYER_ENTERING_WORLD" then
         -- silently refresh stats; WoW writes them to disk on /reload or logout
-        if MunkeHubDB then MunkeHubDB.syncJSON = BuildSyncJSON() end
+        if MunkeHubDB then
+            MunkeHubDB.syncJSON = BuildSyncJSON()
+            MunkeHubDB.detailJSON = BuildDetailJSON()
+        end
         -- announce ourselves to the guild shortly after loading, then periodically
         C_Timer.After(5, BroadcastStats)
         if not tickerStarted then

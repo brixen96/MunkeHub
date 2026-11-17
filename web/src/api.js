@@ -24,4 +24,5 @@ export const api = {
       return res.json();
     }),
   characters: () => get("/characters"),
+  stats: () => get("/stats"),
 };
