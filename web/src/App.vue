@@ -85,6 +85,8 @@
                 <tr class="clickable" @click="toggleRow(c.id)">
                   <td data-label="Character">
                     <span class="chevron" :class="{ open: openRow === c.id }">▸</span>
+                    <span class="avatar" :class="classSlug(c.class)"
+                          v-html="classGlyph(c.class)"></span>
                     <span class="char-name" :class="classSlug(c.class)">
                       {{ c.name }}
                     </span>
@@ -366,6 +368,27 @@ export default {
     },
     classSlug(cls) {
       return "c-" + (cls || "").toLowerCase().replace(/[^a-z]/g, "");
+    },
+    // Original simple SVG glyphs per class (drawn for MunkeHub — no game assets)
+    classGlyph(cls) {
+      const g = {
+        warrior: '<path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/>', // blade star
+        paladin: '<path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/>', // shield
+        hunter: '<path d="M4 20L18 6M18 6l-1 6M18 6l-6 1M18 6l1 6M18 6l-1-6" stroke-width="2" fill="none" stroke="currentColor"/>', // arrow
+        rogue: '<path d="M12 3l3 9-3 9-3-9z M7 12h10" stroke-width="1.5" fill="currentColor"/>', // dagger
+        priest: '<path d="M10 4h4v6h6v4h-6v6h-4v-6H4v-4h6z"/>', // cross
+        deathknight: '<path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9" stroke-width="2" stroke="currentColor" fill="none"/>', // rune star
+        shaman: '<path d="M8 4h8v4H8zM7 10h10v4H7zM8 16h8v4H8z"/>', // totem
+        mage: '<path d="M12 2l2.5 7.5L22 12l-7.5 2.5L12 22l-2.5-7.5L2 12l7.5-2.5z"/>', // arcane star
+        warlock: '<path d="M12 3c4 5 6 7 6 11a6 6 0 11-12 0c0-4 2-6 6-11z"/>', // flame
+        monk: '<circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="30 14"/>', // enso
+        druid: '<path d="M12 3c5 3 7 7 6 12-4 1-8-1-9-5-1-3 1-6 3-7zM11 12c-1 3-3 5-6 6 1-5 3-7 6-6z"/>', // leaf
+        demonhunter: '<path d="M4 6c3 0 5 2 6 6-2-1-4-1-6 1zM20 6c-3 0-5 2-6 6 2-1 4-1 6 1z"/>', // horns
+        evoker: '<path d="M12 3l8 9-8 9-8-9z"/>', // scale
+      };
+      const slug = (cls || "").toLowerCase().replace(/[^a-z]/g, "");
+      const body = g[slug] || g.warrior;
+      return '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">' + body + '</svg>';
     },
     toggleRow(id) {
       this.openRow = this.openRow === id ? null : id;
@@ -723,6 +746,22 @@ main {
   color: var(--gold);
   transition: transform 0.15s;
 }
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #131217;
+  border: 2px solid currentColor;
+  margin-right: 0.55rem;
+  vertical-align: middle;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.avatar svg {
+  display: block;
+}
 .chevron.open {
   transform: rotate(90deg);
 }
@@ -955,6 +994,8 @@ footer {
     text-transform: uppercase;
   }
   .realm { display: inline; margin-left: 0.4rem; }
+  .avatar { width: 28px; height: 28px; }
+  .avatar svg { width: 18px; height: 18px; }
 
   /* detail row spans full width, no fake label */
   .detail-row td { display: block; }
