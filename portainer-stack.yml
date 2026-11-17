@@ -1,13 +1,13 @@
 # MunkeHub — Portainer Stack
 # Portainer → Stacks → Add stack → paste this → Deploy the stack
-# Private: Munkeklubben only. Port 8080 is port-forwarded on Emil's router.
+# Private: Munkeklubben only. Port 4711 is port-forwarded on Emil's router.
 
 services:
   api:
     image: brix1337/munkehub-api:latest
     container_name: munkehub-api
     ports:
-      - "8080:8080"
+      - "4711:8080"
     environment:
       - MUNKEHUB_PORT=8080
       - MUNKEHUB_DB=/data/munkehub.db
