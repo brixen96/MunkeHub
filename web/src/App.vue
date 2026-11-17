@@ -14,7 +14,11 @@
             <span v-else class="muted">…</span>
           </p>
         </div>
-        <button class="download-btn" @click="tab = 'guide'">
+        <button
+          class="download-btn"
+          :class="{ active: tab === 'guide' }"
+          @click="tab = 'guide'"
+        >
           📖 Setup Guide
         </button>
       </div>
@@ -24,9 +28,6 @@
         </button>
         <button :class="{ active: tab === 'news' }" @click="tab = 'news'">
           Announcements
-        </button>
-        <button :class="{ active: tab === 'guide' }" @click="tab = 'guide'">
-          Setup Guide
         </button>
       </nav>
     </header>
@@ -381,6 +382,9 @@ body {
 }
 .download-btn:hover {
   filter: brightness(1.12);
+}
+.download-btn.active {
+  box-shadow: 0 0 0 2px var(--gold-bright);
 }
 .download-btn.big {
   font-size: 1.1rem;
