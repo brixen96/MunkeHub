@@ -13,7 +13,13 @@ go build -o munkehub-helper.exe .
 if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Host "helper build failed" -ForegroundColor Red; exit 1 }
 Pop-Location
 
-# 2. Stage: addon + helper + README (no config.json — no token!)
+# 2. Also copy the exe where the API serves it for self-updates
+#    (GET /api/v1/helper.exe + /api/v1/version)
+$helperOut = Join-Path $repo "api\helper"
+New-Item -ItemType Directory -Path $helperOut -Force | Out-Null
+Copy-Item (Join-Path $repo "helper\munkehub-helper.exe") $helperOut -Force
+
+# 3. Stage: addon + helper + README (no config.json — no token!)
 $stage = Join-Path $repo "api\download\_stage"
 $out = Join-Path $repo "api\download\MunkeHub-setup.zip"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
@@ -46,6 +52,7 @@ MunkeHub setup - Munkeklubben
    b. Then type:  munkehub-helper.exe -install
       This makes it start automatically with Windows, silently in the
       background - you never need to open it again.
+   The helper updates itself automatically - no new downloads needed.
 
 NOTES
 - Step 3 is enough for most people - nothing else to run.
@@ -53,7 +60,7 @@ NOTES
 - Problems? Ask Emil.
 '@ | Set-Content (Join-Path $stage "README.txt")
 
-# 3. Zip
+# 4. Zip
 if (Test-Path $out) { Remove-Item $out -Force }
 Compress-Archive -Path "$stage\*" -DestinationPath $out
 Remove-Item $stage -Recurse -Force

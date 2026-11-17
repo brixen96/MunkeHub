@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
@@ -16,7 +17,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.5.0"
+const version = "0.6.0"
+
+// helperVersion MUST match `version` in helper/main.go — it tells helpers
+// whether a newer exe is available (see scripts/build-download.ps1).
+const helperVersion = "0.6.0"
 
 type Announcement struct {
 	ID        int64     `json:"id"`
@@ -80,6 +85,10 @@ func main() {
 
 		// Generic setup package (NO token inside) for the website Download button
 		api.GET("/download", func(c *gin.Context) { serveDownload(c) })
+
+		// Helper auto-update: version info + the exe itself
+		api.GET("/version", func(c *gin.Context) { serveVersion(c) })
+		api.GET("/helper.exe", func(c *gin.Context) { serveHelper(c) })
 
 		// Token minting: only with admin token configured via env.
 		// Rate-limited per IP — brute-forcing the admin token must stay expensive.
@@ -352,6 +361,37 @@ func serveDownload(c *gin.Context) {
 		return
 	}
 	c.FileAttachment(path, "MunkeHub-setup.zip")
+}
+
+// helperExePath returns the baked-in helper binary (built by
+// scripts/build-download.ps1, copied into the image).
+func helperExePath() string {
+	return envOr("MUNKEHUB_HELPER", "helper/munkehub-helper.exe")
+}
+
+// serveVersion tells helpers which version is available + its checksum.
+func serveVersion(c *gin.Context) {
+	b, err := os.ReadFile(helperExePath())
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "helper not built — run scripts/build-download.ps1"})
+		return
+	}
+	sum := sha256.Sum256(b)
+	c.JSON(http.StatusOK, gin.H{
+		"version": helperVersion,
+		"sha256":  hex.EncodeToString(sum[:]),
+		"size":    len(b),
+	})
+}
+
+// serveHelper streams the helper exe for self-update.
+func serveHelper(c *gin.Context) {
+	path := helperExePath()
+	if _, err := os.Stat(path); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "helper not built — run scripts/build-download.ps1"})
+		return
+	}
+	c.FileAttachment(path, "munkehub-helper.exe")
 }
 
 // --- announcements --------------------------------------------------------

@@ -16,11 +16,19 @@
 // Usage:
 //
 //	munkehub-helper.exe -token <your-personal-token> [-api http://server:4711] [-file <path>] [-once]
+//	munkehub-helper.exe -install     start silently with Windows
+//	munkehub-helper.exe -uninstall   remove auto-start
+//
+// Self-update: at startup the helper asks GET /api/v1/version; if the
+// server has a newer exe it downloads it, verifies the SHA256, swaps the
+// file (Windows allows renaming a running exe) and restarts itself.
 package main
 
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -34,6 +42,9 @@ import (
 	"strings"
 	"time"
 )
+
+// version MUST match helperVersion in api/main.go.
+const version = "0.6.0"
 
 // Matches ["syncJSON"]="..." or syncJSON="..." in the SavedVariables file.
 var syncRe = regexp.MustCompile(`\[?"syncJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
@@ -93,6 +104,112 @@ func extractField(content []byte, re *regexp.Regexp, field string) (string, erro
 		return "", fmt.Errorf("%s not found in file (has the addon synced yet? /reload in game first)", field)
 	}
 	return unescapeLua(string(m[1])), nil
+}
+
+// --- self-update -----------------------------------------------------------
+
+type versionInfo struct {
+	Version string `json:"version"`
+	SHA256  string `json:"sha256"`
+	Size    int    `json:"size"`
+}
+
+// newerVersion reports whether remote is a higher semver-ish version.
+func newerVersion(remote, local string) bool {
+	rp := strings.Split(remote, ".")
+	lp := strings.Split(local, ".")
+	for i := 0; i < len(rp) && i < len(lp); i++ {
+		r, _ := strconv.Atoi(rp[i])
+		l, _ := strconv.Atoi(lp[i])
+		if r != l {
+			return r > l
+		}
+	}
+	return len(rp) > len(lp)
+}
+
+// checkUpdate downloads a newer helper if available and restarts the
+// process. Returns normally if already up to date (or on any error —
+// an update problem must never stop the sync loop).
+func checkUpdate(apiURL string) {
+	client := &http.Client{Timeout: 15 * time.Second}
+
+	res, err := client.Get(strings.TrimRight(apiURL, "/") + "/api/v1/version")
+	if err != nil {
+		logf("update check skipped: %v", err)
+		return
+	}
+	defer res.Body.Close()
+	var vi versionInfo
+	if err := json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&vi); err != nil {
+		logf("update check skipped: %v", err)
+		return
+	}
+	if !newerVersion(vi.Version, version) {
+		return // up to date
+	}
+
+	logf("update available: %s -> %s, downloading…", version, vi.Version)
+	res2, err := client.Get(strings.TrimRight(apiURL, "/") + "/api/v1/helper.exe")
+	if err != nil {
+		logf("update download failed: %v", err)
+		return
+	}
+	defer res2.Body.Close()
+	if res2.StatusCode != http.StatusOK {
+		logf("update download failed: HTTP %d", res2.StatusCode)
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(res2.Body, 32<<20))
+	if err != nil {
+		logf("update download failed: %v", err)
+		return
+	}
+
+	sum := sha256.Sum256(data)
+	if hex.EncodeToString(sum[:]) != strings.ToLower(vi.SHA256) {
+		logf("update rejected: checksum mismatch")
+		return
+	}
+	if len(data) != vi.Size {
+		logf("update rejected: size mismatch")
+		return
+	}
+
+	exePath, err := os.Executable()
+	if err != nil {
+		logf("update failed: %v", err)
+		return
+	}
+	newPath := exePath + ".new"
+	if err := os.WriteFile(newPath, data, 0755); err != nil {
+		logf("update failed: %v", err)
+		return
+	}
+	// Windows allows renaming a running exe; old file becomes .old and is
+	// cleaned up on next update.
+	oldPath := exePath + ".old"
+	_ = os.Remove(oldPath)
+	if err := os.Rename(exePath, oldPath); err != nil {
+		logf("update failed: %v", err)
+		_ = os.Remove(newPath)
+		return
+	}
+	if err := os.Rename(newPath, exePath); err != nil {
+		logf("update failed: %v", err)
+		_ = os.Rename(oldPath, exePath) // roll back
+		return
+	}
+
+	logf("updated to %s — restarting", vi.Version)
+	cmd := exec.Command(exePath)
+	cmd.Args = os.Args
+	if silent {
+		cmd.Args = append(cmd.Args, "-silent")
+	}
+	cmd.Dir = filepath.Dir(exePath)
+	_ = cmd.Start()
+	os.Exit(0)
 }
 
 // --- silent mode: log to file instead of console ---------------------------
@@ -212,6 +329,7 @@ func main() {
 	install := flag.Bool("install", false, "start automatically with Windows (hidden, no window)")
 	uninstall := flag.Bool("uninstall", false, "remove automatic startup")
 	silentFlag := flag.Bool("silent", false, "run without console output (log to helper.log)")
+	noUpdate := flag.Bool("noupdate", false, "skip the self-update check at startup")
 	flag.Parse()
 
 	silent = *silentFlag
@@ -261,6 +379,14 @@ func main() {
 	if !apiFromFlag && cfg.API != "" {
 		*apiURL = cfg.API
 	}
+
+	// Self-update FIRST — before any token prompt or file watching, so an
+	// outdated helper always updates even if it can't sync yet. The update
+	// endpoints are public (no token needed). Skipped with -once/-noupdate.
+	if !*once && !*noUpdate {
+		checkUpdate(*apiURL)
+	}
+
 	if *token == "" && silent {
 		// Never block a background run waiting for input
 		logf("no token configured - run munkehub-helper.exe once in a normal window first")
@@ -308,6 +434,7 @@ func main() {
 	}
 	logf("watching: %s", path)
 	logf("API:      %s", *apiURL)
+	logf("version:  %s", version)
 	if tokenFromFlag {
 		logf("token:    from -token flag")
 	} else {

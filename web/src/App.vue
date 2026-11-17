@@ -215,6 +215,10 @@
                 Your stats then appear on the website within ~10 seconds of
                 logging in or typing <code>/reload</code> in game.
               </p>
+              <p class="muted small">
+                The helper updates itself automatically — you never need to
+                download a new version.
+              </p>
             </div>
           </details>
         </div>
