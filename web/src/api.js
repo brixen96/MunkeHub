@@ -8,19 +8,20 @@ async function get(path) {
   return res.json();
 }
 
-async function post(path, body) {
-  const res = await fetch(`/api/v1${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
-  return res.json();
-}
-
 export const api = {
   guild: () => get("/guild"),
   announcements: () => get("/announcements"),
-  createAnnouncement: (data) => post("/announcements", data),
+  createAnnouncement: (data, token) =>
+    fetch("/api/v1/announcements", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(`POST failed: ${res.status}`);
+      return res.json();
+    }),
   characters: () => get("/characters"),
 };

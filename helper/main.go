@@ -178,8 +178,19 @@ func main() {
 
 	path, err := findFile(*file)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		if *once {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		// Set-and-forget: wait for WoW to write the file instead of exiting
+		fmt.Println("waiting for SavedVariables…", err)
+		for {
+			time.Sleep(*interval)
+			if p, ferr := findFile(*file); ferr == nil {
+				path = p
+				break
+			}
+		}
 	}
 	fmt.Println("watching:", path)
 	fmt.Println("API:     ", *apiURL)

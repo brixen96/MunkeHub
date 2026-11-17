@@ -52,6 +52,37 @@
         <p>{{ a.body }}</p>
         <time>{{ formatDate(a.created_at) }}</time>
       </article>
+
+      <details class="post-box">
+        <summary>Post an announcement (guild members)</summary>
+        <form @submit.prevent="postAnnouncement">
+          <input
+            v-model="newTitle"
+            type="text"
+            placeholder="Title"
+            required
+            maxlength="120"
+          />
+          <textarea
+            v-model="newBody"
+            placeholder="Message for Munkeklubben…"
+            rows="3"
+          ></textarea>
+          <div class="post-row">
+            <input
+              v-model="postToken"
+              type="password"
+              placeholder="Your member token"
+              required
+            />
+            <button type="submit" :disabled="posting">
+              {{ posting ? "Posting…" : "Post" }}
+            </button>
+          </div>
+          <p v-if="postError" class="error">{{ postError }}</p>
+          <p v-if="postOk" class="muted">Posted ✓</p>
+        </form>
+      </details>
     </main>
 
     <footer>
@@ -73,6 +104,12 @@ export default {
       annError: false,
       characters: null,
       charError: false,
+      newTitle: "",
+      newBody: "",
+      postToken: localStorage.getItem("munkehub_token") || "",
+      posting: false,
+      postError: "",
+      postOk: false,
     };
   },
   async created() {
@@ -96,6 +133,26 @@ export default {
     formatDate(iso) {
       if (!iso) return "";
       return new Date(iso).toLocaleString();
+    },
+    async postAnnouncement() {
+      this.posting = true;
+      this.postError = "";
+      this.postOk = false;
+      try {
+        await api.createAnnouncement(
+          { title: this.newTitle, body: this.newBody },
+          this.postToken
+        );
+        localStorage.setItem("munkehub_token", this.postToken);
+        this.postOk = true;
+        this.newTitle = "";
+        this.newBody = "";
+        this.announcements = await api.announcements();
+      } catch {
+        this.postError = "Post failed — check your token.";
+      } finally {
+        this.posting = false;
+      }
     },
   },
 };
@@ -183,5 +240,52 @@ footer {
   font-size: 0.8rem;
   color: #6b7480;
   text-align: center;
+}
+.post-box {
+  margin-top: 1.5rem;
+  background: #1c2128;
+  border: 1px solid #2a2f36;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+.post-box summary {
+  cursor: pointer;
+  color: #8a939e;
+  font-size: 0.9rem;
+}
+.post-box form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.post-box input,
+.post-box textarea {
+  background: #14171c;
+  border: 1px solid #2a2f36;
+  border-radius: 6px;
+  color: #e6e6e6;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+}
+.post-row {
+  display: flex;
+  gap: 0.5rem;
+}
+.post-row input {
+  flex: 1;
+}
+.post-box button {
+  background: #ffd166;
+  border: none;
+  border-radius: 6px;
+  color: #14171c;
+  font-weight: 600;
+  padding: 0.5rem 1.2rem;
+  cursor: pointer;
+}
+.post-box button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 </style>

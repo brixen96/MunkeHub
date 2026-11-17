@@ -67,7 +67,7 @@ func main() {
 	api := r.Group("/api/v1")
 	{
 		api.GET("/announcements", func(c *gin.Context) { listAnnouncements(c, db) })
-		api.POST("/announcements", func(c *gin.Context) { createAnnouncement(c, db) })
+		api.POST("/announcements", requireMemberOrAdmin(db), func(c *gin.Context) { createAnnouncement(c, db) })
 
 		// Roster: public read, token-protected write (helper posts with Bearer token)
 		api.GET("/characters", func(c *gin.Context) { listCharacters(c, db) })
@@ -130,6 +130,25 @@ func requireToken(db *sql.DB) gin.HandlerFunc {
 		}
 		c.Set("tokenID", id)
 		c.Next()
+	}
+}
+
+// requireMemberOrAdmin accepts either a member Bearer token or the admin token.
+func requireMemberOrAdmin(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if h := c.GetHeader("Authorization"); strings.HasPrefix(h, "Bearer ") {
+			tok := strings.TrimPrefix(h, "Bearer ")
+			var id int64
+			if err := db.QueryRow(`SELECT id FROM tokens WHERE token = ?`, tok).Scan(&id); err == nil {
+				c.Next()
+				return
+			}
+		}
+		if admin := os.Getenv("MUNKEHUB_ADMIN_TOKEN"); admin != "" && c.GetHeader("X-Admin-Token") == admin {
+			c.Next()
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authorization required"})
 	}
 }
 
