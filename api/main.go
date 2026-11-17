@@ -2,12 +2,14 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -73,8 +75,9 @@ func main() {
 		api.GET("/characters", func(c *gin.Context) { listCharacters(c, db) })
 		api.POST("/characters", requireToken(db), func(c *gin.Context) { upsertCharacter(c, db) })
 
-		// Token minting: only with admin token configured via env
-		api.POST("/tokens", func(c *gin.Context) { createToken(c, db) })
+		// Token minting: only with admin token configured via env.
+		// Rate-limited per IP — brute-forcing the admin token must stay expensive.
+		api.POST("/tokens", mintLimiter(), func(c *gin.Context) { createToken(c, db) })
 	}
 
 	port := envOr("MUNKEHUB_PORT", "8080")
@@ -115,6 +118,57 @@ func migrate(db *sql.DB) error {
 
 // --- auth -----------------------------------------------------------------
 
+// mintLimiter allows at most 10 token-mint attempts per IP per minute.
+type attemptWindow struct {
+	mu   sync.Mutex
+	hits []time.Time
+}
+
+var (
+	mintMu   sync.Mutex
+	mintHits = map[string]*attemptWindow{}
+)
+
+func mintLimiter() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ip := c.ClientIP()
+		now := time.Now()
+		mintMu.Lock()
+		w := mintHits[ip]
+		if w == nil {
+			w = &attemptWindow{}
+			mintHits[ip] = w
+		}
+		mintMu.Unlock()
+
+		w.mu.Lock()
+		cutoff := now.Add(-time.Minute)
+		kept := w.hits[:0]
+		for _, t := range w.hits {
+			if t.After(cutoff) {
+				kept = append(kept, t)
+			}
+		}
+		w.hits = append(kept, now)
+		count := len(w.hits)
+		w.mu.Unlock()
+
+		if count > 10 {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many attempts"})
+			return
+		}
+		c.Next()
+	}
+}
+
+// adminTokenEqual compares in constant time to avoid timing side channels.
+func adminTokenEqual(got, want string) bool {
+	if want == "" || len(got) != len(want) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
 func requireToken(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h := c.GetHeader("Authorization")
@@ -144,7 +198,7 @@ func requireMemberOrAdmin(db *sql.DB) gin.HandlerFunc {
 				return
 			}
 		}
-		if admin := os.Getenv("MUNKEHUB_ADMIN_TOKEN"); admin != "" && c.GetHeader("X-Admin-Token") == admin {
+		if admin := os.Getenv("MUNKEHUB_ADMIN_TOKEN"); admin != "" && adminTokenEqual(c.GetHeader("X-Admin-Token"), admin) {
 			c.Next()
 			return
 		}
@@ -158,7 +212,7 @@ func createToken(c *gin.Context, db *sql.DB) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MUNKEHUB_ADMIN_TOKEN not configured"})
 		return
 	}
-	if c.GetHeader("X-Admin-Token") != admin {
+	if !adminTokenEqual(c.GetHeader("X-Admin-Token"), admin) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "bad admin token"})
 		return
 	}
