@@ -9,6 +9,9 @@ web/dist/
 # Build logs
 build-push.log
 
+# Guild distribution packages
+dist/
+
 # OS
 .DS_Store
 Thumbs.db
