@@ -40,9 +40,7 @@ MunkeHub setup - Munkeklubben
    At character select, click "AddOns" (bottom left) and make sure
    MunkeHub is ticked.
 
-3. SET YOUR LABEL (once)
-   Log in and type:  /mh label <yourname>
-   Then type:  /reload
+3. LOG IN, then type:  /reload
    Your stats now broadcast to the guild automatically - you do NOT
    need to run any program.
 

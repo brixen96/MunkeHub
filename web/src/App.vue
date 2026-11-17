@@ -76,7 +76,6 @@
                 <th>Class</th>
                 <th>Lvl</th>
                 <th>iLvl</th>
-                <th>Owner</th>
                 <th>Updated</th>
               </tr>
             </thead>
@@ -98,13 +97,12 @@
                   </td>
                   <td data-label="Lvl" class="lvl">{{ c.level }}</td>
                   <td data-label="iLvl">{{ c.ilvl }}</td>
-                  <td data-label="Owner" class="owner">{{ c.owner }}</td>
                   <td data-label="Updated" class="when">
                     {{ formatDate(c.updated_at) }}
                   </td>
                 </tr>
                 <tr v-if="openRow === c.id" class="detail-row">
-                  <td colspan="7">
+                  <td colspan="6">
                     <div class="detail-panel">
                       <div class="detail-core">
                         <div class="detail-item">
@@ -118,10 +116,6 @@
                         <div class="detail-item">
                           <span class="detail-k">Played</span>
                           <span class="detail-v">{{ formatPlayed(c) }}</span>
-                        </div>
-                        <div class="detail-item">
-                          <span class="detail-k">Owner</span>
-                          <span class="detail-v">{{ c.owner }}</span>
                         </div>
                       </div>
                       <div v-if="parseGear(c).length" class="gear-grid">
@@ -247,9 +241,7 @@
               <strong>MunkeHub</strong> is ticked.
             </li>
             <li>
-              <strong>Log in</strong> and type:
-              <code>/mh label yourname</code>
-              then <code>/reload</code>.
+              <strong>Log in</strong> and type: <code>/reload</code>.
             </li>
             <li>
               <strong>Done!</strong> Your character appears on the

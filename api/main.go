@@ -19,7 +19,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.7.1"
+const version = "0.8.0"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -34,7 +34,6 @@ type Announcement struct {
 
 type Character struct {
 	ID        int64     `json:"id"`
-	Owner     string    `json:"owner"`
 	Name      string    `json:"name"`
 	Realm     string    `json:"realm"`
 	Race      string    `json:"race"`
@@ -135,7 +134,6 @@ func migrate(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS characters (
 			id         INTEGER PRIMARY KEY AUTOINCREMENT,
 			token_id   INTEGER NOT NULL REFERENCES tokens(id) ON DELETE CASCADE,
-			owner      TEXT NOT NULL DEFAULT '',
 			name       TEXT NOT NULL,
 			realm      TEXT NOT NULL DEFAULT '',
 			race       TEXT NOT NULL DEFAULT '',
@@ -147,7 +145,7 @@ func migrate(db *sql.DB) error {
 			played     INTEGER NOT NULL DEFAULT 0,
 			detail     TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-			UNIQUE (token_id, name)
+			UNIQUE (name, realm)
 		)`)
 	if err != nil {
 		return err
@@ -156,7 +154,6 @@ func migrate(db *sql.DB) error {
 	// Upgrade older databases: CREATE TABLE IF NOT EXISTS won't add columns
 	// to tables that already exist.
 	for _, alter := range []string{
-		`ALTER TABLE characters ADD COLUMN owner TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE characters ADD COLUMN spec TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE characters ADD COLUMN zone TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE characters ADD COLUMN played INTEGER NOT NULL DEFAULT 0`,
@@ -165,6 +162,43 @@ func migrate(db *sql.DB) error {
 		if _, err := db.Exec(alter); err != nil &&
 			!strings.Contains(err.Error(), "duplicate column") {
 			return err
+		}
+	}
+
+	// v0.8.0: owner removed — rebuild the table to drop the column and
+	// regroup rows by (name, realm) so relay + helper paths converge.
+	var hasOwner int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('characters') WHERE name = 'owner'`).Scan(&hasOwner); err != nil {
+		return err
+	}
+	if hasOwner > 0 {
+		stmts := []string{
+			`ALTER TABLE characters RENAME TO characters_old`,
+			`CREATE TABLE characters (
+				id         INTEGER PRIMARY KEY AUTOINCREMENT,
+				token_id   INTEGER NOT NULL REFERENCES tokens(id) ON DELETE CASCADE,
+				name       TEXT NOT NULL,
+				realm      TEXT NOT NULL DEFAULT '',
+				race       TEXT NOT NULL DEFAULT '',
+				class      TEXT NOT NULL DEFAULT '',
+				level      INTEGER NOT NULL DEFAULT 0,
+				ilvl       REAL NOT NULL DEFAULT 0,
+				spec       TEXT NOT NULL DEFAULT '',
+				zone       TEXT NOT NULL DEFAULT '',
+				played     INTEGER NOT NULL DEFAULT 0,
+				detail     TEXT NOT NULL DEFAULT '',
+				updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE (name, realm)
+			)`,
+			// OR REPLACE: collapses duplicate (name, realm) rows — last wins
+			`INSERT OR REPLACE INTO characters (id, token_id, name, realm, race, class, level, ilvl, spec, zone, played, detail, updated_at)
+			 SELECT id, token_id, name, realm, race, class, level, ilvl, spec, zone, played, detail, updated_at FROM characters_old`,
+			`DROP TABLE characters_old`,
+		}
+		for _, s := range stmts {
+			if _, err := db.Exec(s); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -349,10 +383,9 @@ func createToken(c *gin.Context, db *sql.DB) {
 
 func listCharacters(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`
-		SELECT c.id, CASE WHEN c.owner != '' THEN c.owner ELSE t.label END,
-		       c.name, c.realm, c.race, c.class, c.level, c.ilvl,
+		SELECT c.id, c.name, c.realm, c.race, c.class, c.level, c.ilvl,
 		       c.spec, c.zone, c.played, c.detail, c.updated_at
-		FROM characters c JOIN tokens t ON t.id = c.token_id
+		FROM characters c
 		ORDER BY c.level DESC, c.name ASC`)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -364,7 +397,7 @@ func listCharacters(c *gin.Context, db *sql.DB) {
 	for rows.Next() {
 		var ch Character
 		var updatedAt string
-		if err := rows.Scan(&ch.ID, &ch.Owner, &ch.Name, &ch.Realm, &ch.Race, &ch.Class,
+		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Realm, &ch.Race, &ch.Class,
 			&ch.Level, &ch.ILvl, &ch.Spec, &ch.Zone, &ch.Played, &ch.Detail, &updatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -378,8 +411,8 @@ func listCharacters(c *gin.Context, db *sql.DB) {
 // upsertDetail stores spec/zone/gear detail for the caller's own character.
 func upsertDetail(c *gin.Context, db *sql.DB) {
 	var in struct {
-		Owner  string `json:"owner"`
 		Name   string `json:"name" binding:"required"`
+		Realm  string `json:"realm"`
 		Spec   string `json:"spec"`
 		Zone   string `json:"zone"`
 		Played int    `json:"played"`
@@ -398,8 +431,9 @@ func upsertDetail(c *gin.Context, db *sql.DB) {
 	tokenID := c.GetInt64("tokenID")
 	_, err := db.Exec(`
 		UPDATE characters SET spec = ?, zone = ?, played = ?, detail = ?, updated_at = datetime('now')
-		WHERE token_id = ? AND name = ?`,
-		in.Spec, in.Zone, in.Played, string(gearJSON), tokenID, in.Name)
+		WHERE name = ? AND realm = ?`,
+		in.Spec, in.Zone, in.Played, string(gearJSON), in.Name, in.Realm)
+	_ = tokenID
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -443,7 +477,6 @@ func guildStats(c *gin.Context, db *sql.DB) {
 }
 
 type charIn struct {
-	Owner string  `json:"owner"`
 	Name  string  `json:"name" binding:"required"`
 	Realm string  `json:"realm"`
 	Race  string  `json:"race"`
@@ -468,13 +501,13 @@ func upsertCharacter(c *gin.Context, db *sql.DB) {
 
 func upsertChar(db *sql.DB, tokenID int64, in charIn) error {
 	_, err := db.Exec(`
-		INSERT INTO characters (token_id, owner, name, realm, race, class, level, ilvl, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-		ON CONFLICT (token_id, name) DO UPDATE SET
-			owner = excluded.owner, realm = excluded.realm, race = excluded.race,
+		INSERT INTO characters (token_id, name, realm, race, class, level, ilvl, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		ON CONFLICT (name, realm) DO UPDATE SET
+			token_id = excluded.token_id, race = excluded.race,
 			class = excluded.class, level = excluded.level, ilvl = excluded.ilvl,
 			updated_at = datetime('now')`,
-		tokenID, in.Owner, in.Name, in.Realm, in.Race, in.Class, in.Level, in.ILvl)
+		tokenID, in.Name, in.Realm, in.Race, in.Class, in.Level, in.ILvl)
 	return err
 }
 
@@ -491,7 +524,7 @@ func relayCharacters(c *gin.Context, db *sql.DB) {
 	}
 	tokenID := c.GetInt64("tokenID")
 	for _, ch := range in {
-		if ch.Owner == "" || ch.Name == "" {
+		if ch.Name == "" {
 			continue
 		}
 		if err := upsertChar(db, tokenID, ch); err != nil {

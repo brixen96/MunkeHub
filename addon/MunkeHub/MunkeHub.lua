@@ -1,4 +1,4 @@
--- MunkeHub v0.5.0 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.0 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -15,7 +15,6 @@ local defaults = {
     syncJSON = "",   -- own stats payload (read by the helper)
     detailJSON = "", -- deep detail: spec/zone/gear (helper path ONLY — too big for relay)
     relayJSON = "",  -- relayed guild stats array (read by the helper)
-    label = "",      -- roster owner label, set via: /mh label sven
 }
 
 local function Print(msg)
@@ -32,8 +31,6 @@ local function BuildSyncJSON()
     local race = UnitRace("player") or ""
     local class = select(2, UnitClass("player")) or ""
     local level = UnitLevel("player") or 0
-    local owner = (MunkeHubDB and MunkeHubDB.label) or ""
-    if owner == "" then owner = name end
     local ilvl = 0
     if GetAverageItemLevel then
         local overall = GetAverageItemLevel()
@@ -44,8 +41,8 @@ local function BuildSyncJSON()
         return (tostring(s):gsub('[\\"]', function(c) return "\\" .. c end))
     end
     return string.format(
-        '{"owner":"%s","name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s}',
-        esc(owner), esc(name), esc(realm), esc(race), esc(class), level, tostring(ilvl))
+        '{"name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s}',
+        esc(name), esc(realm), esc(race), esc(class), level, tostring(ilvl))
 end
 
 -- Deep detail for the expandable roster rows. NEVER relayed (240-byte cap) —
@@ -99,11 +96,10 @@ local function BuildDetailJSON()
     end
 
     local name = UnitName("player") or ""
-    local owner = (MunkeHubDB and MunkeHubDB.label) or ""
-    if owner == "" then owner = name end
+    local realm = GetRealmName() or ""
     return string.format(
-        '{"owner":"%s","name":"%s","spec":"%s","zone":"%s","played":%d,"gear":[%s]}',
-        esc(owner), esc(name), esc(spec), esc(zone), played, table.concat(gear, ","))
+        '{"name":"%s","realm":"%s","spec":"%s","zone":"%s","played":%d,"gear":[%s]}',
+        esc(name), esc(realm), esc(spec), esc(zone), played, table.concat(gear, ","))
 end
 
 local function SyncStats()
@@ -137,11 +133,12 @@ end
 
 local function ReceiveRelay(prefix, message)
     if prefix ~= PREFIX then return end
-    local owner = message:match('"owner":"([^"]*)"')
-    if not owner or owner == "" then return end
+    -- keyed by character name (owner grouping removed in v0.8.0)
+    local key = message:match('"name":"([^"]*)"')
+    if not key or key == "" then return end
 
     MunkeHubDB.relayMap = MunkeHubDB.relayMap or {}
-    MunkeHubDB.relayMap[owner] = message
+    MunkeHubDB.relayMap[key] = message
 
     -- cap the map (drop one arbitrary entry when over)
     local count = 0
@@ -206,7 +203,6 @@ local function ShowHelp()
     Print("commands:")
     print("  |cffffffff/munkehub status|r            show sync + relay status")
     print("  |cffffffff/munkehub sync|r              save character stats now")
-    print("  |cffffffff/munkehub label <name>|r      set your roster label (e.g. /mh label sven)")
 end
 
 SLASH_MUNKEHUB1 = "/munkehub"
@@ -215,19 +211,11 @@ SlashCmdList["MUNKEHUB"] = function(msg)
     local cmd, rest = strmatch(msg or "", "^%s*(%S+)%s*(.-)%s*$")
     cmd = cmd and strlower(cmd)
 
-    if cmd == "label" and rest ~= "" then
-        MunkeHubDB.label = rest
-        MunkeHubDB.syncJSON = BuildSyncJSON()
-        Print("label set to |cffffffff" .. rest .. "|r — all your characters group under it.")
-        Print("/reload or logout to save it to disk.")
-    elseif cmd == "sync" then
+    if cmd == "sync" then
         SyncStats()
     elseif cmd == "status" then
-        local label = MunkeHubDB and MunkeHubDB.label or ""
         local payload = MunkeHubDB and MunkeHubDB.syncJSON or ""
         local relay = MunkeHubDB and MunkeHubDB.relayJSON or ""
-        Print("label: " .. (label ~= "" and ("|cffffffff" .. label .. "|r")
-            or "|cffff4444not set|r — /mh label <name>"))
         if payload ~= "" then
             Print("own stats: |cffffffffsaved|r — helper uploads. /reload writes to disk.")
         else
