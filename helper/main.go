@@ -1,6 +1,10 @@
 // MunkeHub helper — watches the WoW SavedVariables file written by the
 // MunkeHub addon and POSTs the character stats to the MunkeHub API.
 //
+// Two payloads:
+//   syncJSON  — own character stats        -> POST /api/v1/characters
+//   relayJSON — guild members received in-game -> POST /api/v1/relay
+//
 // NOTE: WoW names the SavedVariables file after the ADDON FOLDER
 // (MunkeHub.lua), not the ## SavedVariables: variable (MunkeHubDB).
 //
@@ -14,6 +18,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -30,6 +35,9 @@ import (
 
 // Matches ["syncJSON"]="..." or syncJSON="..." in the SavedVariables file.
 var syncRe = regexp.MustCompile(`\[?"syncJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
+
+// Matches ["relayJSON"]="..." (array of relayed guild members).
+var relayRe = regexp.MustCompile(`\[?"relayJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
 
 const defaultGlob = `C:\Program Files (x86)\World of Warcraft\_forever_\WTF\Account\*\SavedVariables\MunkeHub.lua`
 
@@ -77,10 +85,10 @@ func unescapeLua(s string) string {
 	return b.String()
 }
 
-func extractPayload(content []byte) (string, error) {
-	m := syncRe.FindSubmatch(content)
+func extractField(content []byte, re *regexp.Regexp, field string) (string, error) {
+	m := re.FindSubmatch(content)
 	if m == nil {
-		return "", fmt.Errorf("syncJSON not found in file (has the addon synced yet? /reload in game first)")
+		return "", fmt.Errorf("%s not found in file (has the addon synced yet? /reload in game first)", field)
 	}
 	return unescapeLua(string(m[1])), nil
 }
@@ -124,8 +132,8 @@ func findFile(explicit string) (string, error) {
 	return matches[0], nil
 }
 
-func post(apiURL, token, payload string) error {
-	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(apiURL, "/")+"/api/v1/characters",
+func post(apiURL, token, path, payload string) error {
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(apiURL, "/")+path,
 		bytes.NewReader([]byte(payload)))
 	if err != nil {
 		return err
@@ -171,9 +179,27 @@ func main() {
 		*apiURL = cfg.API
 	}
 	if *token == "" {
-		fmt.Fprintln(os.Stderr, "error: no token — run scripts\\mint-token.ps1 or pass -token")
-		flag.Usage()
-		os.Exit(1)
+		// First run (generic download): ask once, save for next time
+		fmt.Print("No token found. Paste your personal MunkeHub token (ask Emil): ")
+		reader := bufio.NewReader(os.Stdin)
+		line, _ := reader.ReadString('\n')
+		*token = strings.TrimSpace(line)
+		if *token == "" {
+			fmt.Fprintln(os.Stderr, "error: no token provided")
+			os.Exit(1)
+		}
+		cfg.Token = *token
+		if cfg.API == "" {
+			cfg.API = *apiURL
+		}
+		cfgPath := "config.json"
+		if exe, err := os.Executable(); err == nil {
+			cfgPath = filepath.Join(filepath.Dir(exe), "config.json")
+		}
+		if b, err := json.MarshalIndent(cfg, "", "  "); err == nil {
+			_ = os.WriteFile(cfgPath, b, 0600)
+		}
+		fmt.Println("Token saved — you won't be asked again.")
 	}
 
 	path, err := findFile(*file)
@@ -217,18 +243,22 @@ func main() {
 			fmt.Println("read error:", err)
 			return
 		}
-		payload, err := extractPayload(content)
-		if err != nil {
+		// 1. Own stats
+		if payload, err := extractField(content, syncRe, "syncJSON"); err == nil && strings.TrimSpace(payload) != "" {
+			if err := post(*apiURL, *token, "/api/v1/characters", payload); err != nil {
+				fmt.Println("post error:", err)
+				return // don't update lastMod — retry next tick
+			}
+		} else if err != nil {
 			fmt.Println("skip:", err)
-			return
 		}
-		if strings.TrimSpace(payload) == "" {
-			fmt.Println("skip: syncJSON is empty — run /mh sync in game, then /reload")
-			return
-		}
-		if err := post(*apiURL, *token, payload); err != nil {
-			fmt.Println("post error:", err)
-			return // don't update lastMod — retry next tick
+
+		// 2. Relayed guild members (received in-game via CHAT_MSG_ADDON)
+		if relay, err := extractField(content, relayRe, "relayJSON"); err == nil && strings.TrimSpace(relay) != "" {
+			if err := post(*apiURL, *token, "/api/v1/relay", relay); err != nil {
+				fmt.Println("relay error:", err)
+				return
+			}
 		}
 		lastMod, lastSize = info.ModTime(), info.Size()
 		fmt.Printf("synced at %s\n", time.Now().Format("15:04:05"))

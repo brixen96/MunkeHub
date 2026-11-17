@@ -10,6 +10,9 @@ RUN CGO_ENABLED=0 go build -o /munkehub-api .
 FROM alpine:3.20
 WORKDIR /app
 COPY --from=build /munkehub-api .
+# Generic setup package for the website Download button
+# (build it first: scripts/build-download.ps1)
+COPY download/ ./download/
 ENV MUNKEHUB_PORT=8080 \
     MUNKEHUB_DB=/data/munkehub.db
 VOLUME /data

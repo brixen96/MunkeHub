@@ -12,6 +12,7 @@ build-push.log
 # Guild distribution packages
 dist/
 scripts/pack-config.json
+api/download/*.zip
 
 # OS
 .DS_Store

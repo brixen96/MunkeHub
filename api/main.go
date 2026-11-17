@@ -16,7 +16,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.2.0"
+const version = "0.5.0"
 
 type Announcement struct {
 	ID        int64     `json:"id"`
@@ -75,6 +75,12 @@ func main() {
 		api.GET("/characters", func(c *gin.Context) { listCharacters(c, db) })
 		api.POST("/characters", requireToken(db), func(c *gin.Context) { upsertCharacter(c, db) })
 
+		// Guild relay: Emil's helper uploads everyone received in-game
+		api.POST("/relay", requireToken(db), func(c *gin.Context) { relayCharacters(c, db) })
+
+		// Generic setup package (NO token inside) for the website Download button
+		api.GET("/download", func(c *gin.Context) { serveDownload(c) })
+
 		// Token minting: only with admin token configured via env.
 		// Rate-limited per IP — brute-forcing the admin token must stay expensive.
 		api.POST("/tokens", mintLimiter(), func(c *gin.Context) { createToken(c, db) })
@@ -104,6 +110,7 @@ func migrate(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS characters (
 			id         INTEGER PRIMARY KEY AUTOINCREMENT,
 			token_id   INTEGER NOT NULL REFERENCES tokens(id) ON DELETE CASCADE,
+			owner      TEXT NOT NULL DEFAULT '',
 			name       TEXT NOT NULL,
 			realm      TEXT NOT NULL DEFAULT '',
 			race       TEXT NOT NULL DEFAULT '',
@@ -240,7 +247,8 @@ func createToken(c *gin.Context, db *sql.DB) {
 
 func listCharacters(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`
-		SELECT c.id, t.label, c.name, c.realm, c.race, c.class, c.level, c.ilvl, c.updated_at
+		SELECT c.id, CASE WHEN c.owner != '' THEN c.owner ELSE t.label END,
+		       c.name, c.realm, c.race, c.class, c.level, c.ilvl, c.updated_at
 		FROM characters c JOIN tokens t ON t.id = c.token_id
 		ORDER BY c.level DESC, c.name ASC`)
 	if err != nil {
@@ -263,32 +271,77 @@ func listCharacters(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, out)
 }
 
+type charIn struct {
+	Owner string  `json:"owner"`
+	Name  string  `json:"name" binding:"required"`
+	Realm string  `json:"realm"`
+	Race  string  `json:"race"`
+	Class string  `json:"class"`
+	Level int     `json:"level"`
+	ILvl  float64 `json:"ilvl"`
+}
+
 func upsertCharacter(c *gin.Context, db *sql.DB) {
-	var in struct {
-		Name  string  `json:"name" binding:"required"`
-		Realm string  `json:"realm"`
-		Race  string  `json:"race"`
-		Class string  `json:"class"`
-		Level int     `json:"level"`
-		ILvl  float64 `json:"ilvl"`
-	}
+	var in charIn
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	tokenID := c.GetInt64("tokenID")
-	_, err := db.Exec(`
-		INSERT INTO characters (token_id, name, realm, race, class, level, ilvl, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-		ON CONFLICT (token_id, name) DO UPDATE SET
-			realm = excluded.realm, race = excluded.race, class = excluded.class,
-			level = excluded.level, ilvl = excluded.ilvl, updated_at = datetime('now')`,
-		tokenID, in.Name, in.Realm, in.Race, in.Class, in.Level, in.ILvl)
-	if err != nil {
+	if err := upsertChar(db, tokenID, in); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func upsertChar(db *sql.DB, tokenID int64, in charIn) error {
+	_, err := db.Exec(`
+		INSERT INTO characters (token_id, owner, name, realm, race, class, level, ilvl, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		ON CONFLICT (token_id, name) DO UPDATE SET
+			owner = excluded.owner, realm = excluded.realm, race = excluded.race,
+			class = excluded.class, level = excluded.level, ilvl = excluded.ilvl,
+			updated_at = datetime('now')`,
+		tokenID, in.Owner, in.Name, in.Realm, in.Race, in.Class, in.Level, in.ILvl)
+	return err
+}
+
+// relayCharacters accepts an array of characters received via CHAT_MSG_ADDON.
+func relayCharacters(c *gin.Context, db *sql.DB) {
+	var in []charIn
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(in) > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "too many characters"})
+		return
+	}
+	tokenID := c.GetInt64("tokenID")
+	for _, ch := range in {
+		if ch.Owner == "" || ch.Name == "" {
+			continue
+		}
+		if err := upsertChar(db, tokenID, ch); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "count": len(in)})
+}
+
+// --- download ---------------------------------------------------------------
+
+// serveDownload streams the generic setup package (built by
+// scripts/build-download.ps1, baked into the image). It contains NO token.
+func serveDownload(c *gin.Context) {
+	path := envOr("MUNKEHUB_DOWNLOAD", "download/MunkeHub-setup.zip")
+	if _, err := os.Stat(path); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "package not built — run scripts/build-download.ps1"})
+		return
+	}
+	c.FileAttachment(path, "MunkeHub-setup.zip")
 }
 
 // --- announcements --------------------------------------------------------

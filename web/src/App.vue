@@ -14,6 +14,9 @@
             <span v-else class="muted">…</span>
           </p>
         </div>
+        <a class="download-btn" href="/api/v1/download" download>
+          ⬇ Download Addon
+        </a>
       </div>
       <nav class="tabs">
         <button :class="{ active: tab === 'roster' }" @click="tab = 'roster'">
@@ -263,6 +266,23 @@ body {
 .crest {
   font-size: 2.6rem;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
+}
+.download-btn {
+  margin-left: auto;
+  align-self: center;
+  background: linear-gradient(180deg, #d9b45c, #a8842f);
+  border: 1px solid var(--gold);
+  border-radius: 6px;
+  color: #1a1508;
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 0.55rem 1.1rem;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: filter 0.15s;
+}
+.download-btn:hover {
+  filter: brightness(1.12);
 }
 .titles h1 {
   margin: 0;

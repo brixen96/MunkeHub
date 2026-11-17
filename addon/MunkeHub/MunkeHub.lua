@@ -1,9 +1,20 @@
--- MunkeHub v0.1.0 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.5.0 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+--
+-- Two data paths (WoW addons CANNOT do HTTP):
+--   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
+--   2. GUILD relay -> CHAT_MSG_ADDON broadcast   -> Emil's helper uploads
+--      (friends only need this addon — nothing to run)
 local ADDON_NAME = ...
 
+local PREFIX = "MUNKEHUB"
+local RELAY_MAX = 50              -- max relayed members kept
+local BROADCAST_INTERVAL = 300    -- seconds between guild broadcasts
+
 local defaults = {
-    apiURL = "",   -- legacy (unused — the helper handles the API address)
-    syncJSON = "", -- stats payload read by the MunkeHub helper (SavedVariables)
+    apiURL = "",     -- legacy (unused — the helper handles the API address)
+    syncJSON = "",   -- own stats payload (read by the helper)
+    relayJSON = "",  -- relayed guild stats array (read by the helper)
+    label = "",      -- roster owner label, set via: /mh label sven
 }
 
 local function Print(msg)
@@ -20,6 +31,8 @@ local function BuildSyncJSON()
     local race = UnitRace("player") or ""
     local class = select(2, UnitClass("player")) or ""
     local level = UnitLevel("player") or 0
+    local owner = (MunkeHubDB and MunkeHubDB.label) or ""
+    if owner == "" then owner = name end
     local ilvl = 0
     if GetAverageItemLevel then
         local overall = GetAverageItemLevel()
@@ -30,32 +43,93 @@ local function BuildSyncJSON()
         return (tostring(s):gsub('[\\"]', function(c) return "\\" .. c end))
     end
     return string.format(
-        '{"name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s}',
-        esc(name), esc(realm), esc(race), esc(class), level, tostring(ilvl))
+        '{"owner":"%s","name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s}',
+        esc(owner), esc(name), esc(realm), esc(race), esc(class), level, tostring(ilvl))
 end
 
 local function SyncStats()
     MunkeHubDB.syncJSON = BuildSyncJSON()
-    Print("stats saved — the MunkeHub helper will upload them (or /reload to flush now).")
+    Print("stats saved — the helper uploads them (or /reload to flush now).")
+end
+
+-- ---------------------------------------------------------------------------
+-- Guild relay: broadcast our stats, collect everyone else's
+-- ---------------------------------------------------------------------------
+local function BroadcastStats()
+    if not C_ChatInfo or not IsInGuild() then return end
+    local msg = BuildSyncJSON()
+    if #msg + #PREFIX > 240 then return end -- WoW addon message limit
+    C_ChatInfo.SendAddonMessage(PREFIX, msg, "GUILD")
+end
+
+local function RebuildRelayJSON()
+    local map = MunkeHubDB.relayMap
+    if not map then
+        MunkeHubDB.relayJSON = ""
+        return
+    end
+    local parts = {}
+    for _, v in pairs(map) do
+        parts[#parts + 1] = v
+    end
+    MunkeHubDB.relayJSON = (#parts > 0) and ("[" .. table.concat(parts, ",") .. "]") or ""
+end
+
+local function ReceiveRelay(prefix, message)
+    if prefix ~= PREFIX then return end
+    local owner = message:match('"owner":"([^"]*)"')
+    if not owner or owner == "" then return end
+
+    MunkeHubDB.relayMap = MunkeHubDB.relayMap or {}
+    MunkeHubDB.relayMap[owner] = message
+
+    -- cap the map (drop one arbitrary entry when over)
+    local count = 0
+    for _ in pairs(MunkeHubDB.relayMap) do count = count + 1 end
+    if count > RELAY_MAX then
+        for k in pairs(MunkeHubDB.relayMap) do
+            MunkeHubDB.relayMap[k] = nil
+            break
+        end
+    end
+    RebuildRelayJSON()
 end
 
 -- ---------------------------------------------------------------------------
 -- Core frame: load SavedVariables, then we're ready
 -- ---------------------------------------------------------------------------
 local core = CreateFrame("Frame", "MunkeHubFrame", UIParent)
+local tickerStarted = false
 core:RegisterEvent("ADDON_LOADED")
 core:RegisterEvent("PLAYER_ENTERING_WORLD")
+core:RegisterEvent("CHAT_MSG_ADDON")
 core:SetScript("OnEvent", function(self, event, ...)
+    if event == "CHAT_MSG_ADDON" then
+        local prefix, message = ...
+        ReceiveRelay(prefix, message)
+        return
+    end
+
     if event == "PLAYER_ENTERING_WORLD" then
         -- silently refresh stats; WoW writes them to disk on /reload or logout
         if MunkeHubDB then MunkeHubDB.syncJSON = BuildSyncJSON() end
+        -- announce ourselves to the guild shortly after loading, then periodically
+        C_Timer.After(5, BroadcastStats)
+        if not tickerStarted then
+            tickerStarted = true
+            C_Timer.NewTicker(BROADCAST_INTERVAL, BroadcastStats)
+        end
         return
     end
+
     if event ~= "ADDON_LOADED" or ... ~= ADDON_NAME then return end
 
     MunkeHubDB = MunkeHubDB or {}
     for k, v in pairs(defaults) do
         if MunkeHubDB[k] == nil then MunkeHubDB[k] = v end
+    end
+    if C_ChatInfo then
+        C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
     end
 
     self:UnregisterEvent("ADDON_LOADED")
@@ -67,8 +141,9 @@ end)
 -- ---------------------------------------------------------------------------
 local function ShowHelp()
     Print("commands:")
-    print("  |cffffffff/munkehub status|r            show sync status")
+    print("  |cffffffff/munkehub status|r            show sync + relay status")
     print("  |cffffffff/munkehub sync|r              save character stats now")
+    print("  |cffffffff/munkehub label <name>|r      set your roster label (e.g. /mh label sven)")
 end
 
 SLASH_MUNKEHUB1 = "/munkehub"
@@ -77,16 +152,27 @@ SlashCmdList["MUNKEHUB"] = function(msg)
     local cmd, rest = strmatch(msg or "", "^%s*(%S+)%s*(.-)%s*$")
     cmd = cmd and strlower(cmd)
 
-    if cmd == "sync" then
+    if cmd == "label" and rest ~= "" then
+        MunkeHubDB.label = rest
+        MunkeHubDB.syncJSON = BuildSyncJSON()
+        Print("label set to |cffffffff" .. rest .. "|r — all your characters group under it.")
+        Print("/reload or logout to save it to disk.")
+    elseif cmd == "sync" then
         SyncStats()
     elseif cmd == "status" then
+        local label = MunkeHubDB and MunkeHubDB.label or ""
         local payload = MunkeHubDB and MunkeHubDB.syncJSON or ""
+        local relay = MunkeHubDB and MunkeHubDB.relayJSON or ""
+        Print("label: " .. (label ~= "" and ("|cffffffff" .. label .. "|r")
+            or "|cffff4444not set|r — /mh label <name>"))
         if payload ~= "" then
-            Print("stats: |cffffffff" .. payload:sub(1, 60) .. "...|r")
-            Print("saved — helper uploads it. /reload or logout writes it to disk.")
+            Print("own stats: |cffffffffsaved|r — helper uploads. /reload writes to disk.")
         else
-            Print("stats: |cffff4444not saved yet|r — type /mh sync")
+            Print("own stats: |cffff4444not saved yet|r — type /mh sync")
         end
+        local relayCount = 0
+        for _ in gmatch(relay, '"owner"') do relayCount = relayCount + 1 end
+        Print("relayed members: |cffffffff" .. relayCount .. "|r")
     else
         ShowHelp()
     end
