@@ -14,9 +14,9 @@
             <span v-else class="muted">…</span>
           </p>
         </div>
-        <a class="download-btn" href="/api/v1/download" download>
+        <button class="download-btn" @click="tab = 'guide'">
           ⬇ Download Addon
-        </a>
+        </button>
       </div>
       <nav class="tabs">
         <button :class="{ active: tab === 'roster' }" @click="tab = 'roster'">
@@ -24,6 +24,9 @@
         </button>
         <button :class="{ active: tab === 'news' }" @click="tab = 'news'">
           Announcements
+        </button>
+        <button :class="{ active: tab === 'guide' }" @click="tab = 'guide'">
+          Setup Guide
         </button>
       </nav>
     </header>
@@ -120,6 +123,97 @@
               <p v-if="postError" class="error">{{ postError }}</p>
               <p v-if="postOk" class="ok">Posted ✓</p>
             </form>
+          </details>
+        </div>
+      </section>
+
+      <!-- ================= SETUP GUIDE ================= -->
+      <section v-show="tab === 'guide'">
+        <div class="panel">
+          <h2 class="panel-title">Setup Guide</h2>
+
+          <div class="guide-intro">
+            <p>
+              <strong>MunkeHub</strong> shows our guild on this website — every
+              character and all guild news in one place. Getting your character
+              on here takes about 2 minutes and you only do it once.
+            </p>
+          </div>
+
+          <div class="explain-card">
+            <h3>🧩 What is the Add-on?</h3>
+            <p>
+              A small file for World of Warcraft that reads your character
+              (name, level, class, gear) and shares it with the guild.
+              <strong>It does not change the game</strong> — no cheats, no
+              gameplay changes. It just reads your character sheet.
+            </p>
+          </div>
+
+          <div class="explain-card">
+            <h3>🤖 What is the Helper?</h3>
+            <p>
+              A tiny program that uploads your stats to the website
+              automatically. <strong>You do NOT need it</strong> — without it,
+              your stats sync whenever Emil is online in-game. Run it only if
+              you want your stats to update instantly.
+            </p>
+          </div>
+
+          <h3 class="steps-title">Step by step</h3>
+          <ol class="steps">
+            <li>
+              <strong>Download</strong> the package with the button below.
+            </li>
+            <li>
+              <strong>Open the zip file</strong> → right-click it →
+              <em>Extract All</em> → Extract.
+            </li>
+            <li>
+              <strong>Copy the <code>MunkeHub</code> folder</strong> into your
+              WoW AddOns folder:
+              <code class="path">World of Warcraft\_forever_\Interface\AddOns</code>
+            </li>
+            <li>
+              <strong>Start World of Warcraft.</strong> At the character select
+              screen, click <em>AddOns</em> (bottom left) and make sure
+              <strong>MunkeHub</strong> is ticked.
+            </li>
+            <li>
+              <strong>Log in</strong> and type:
+              <code>/mh label yourname</code>
+              then <code>/reload</code>.
+            </li>
+            <li>
+              <strong>Done!</strong> Your character appears on the
+              <a href="#" @click.prevent="tab = 'roster'">Guild Roster</a>
+              within a few minutes.
+            </li>
+          </ol>
+
+          <div class="guide-download">
+            <a class="download-btn big" href="/api/v1/download" download>
+              ⬇ Download MunkeHub Setup
+            </a>
+            <p class="muted small">
+              Contains: the add-on, the helper, and a README with these steps.
+            </p>
+          </div>
+
+          <details class="post-box">
+            <summary>Optional: instant sync with the Helper (for the impatient)</summary>
+            <div class="helper-steps">
+              <ol>
+                <li>Ask Emil for your personal token.</li>
+                <li>Double-click <code>munkehub-helper.exe</code> from the zip.</li>
+                <li>Paste your token when asked — it's remembered from then on.</li>
+                <li>Leave the window open (or minimize it) while you play.</li>
+              </ol>
+              <p class="muted small">
+                Your stats then appear on the website within ~10 seconds of
+                logging in or typing <code>/reload</code> in game.
+              </p>
+            </div>
           </details>
         </div>
       </section>
@@ -274,15 +368,105 @@ body {
   border: 1px solid var(--gold);
   border-radius: 6px;
   color: #1a1508;
+  font-family: inherit;
   font-weight: 700;
   font-size: 0.9rem;
   padding: 0.55rem 1.1rem;
   text-decoration: none;
   white-space: nowrap;
+  cursor: pointer;
   transition: filter 0.15s;
 }
 .download-btn:hover {
   filter: brightness(1.12);
+}
+.download-btn.big {
+  font-size: 1.1rem;
+  padding: 0.8rem 1.8rem;
+}
+
+/* ---------------- setup guide ---------------- */
+.guide-intro p {
+  margin: 0 0 1rem;
+  line-height: 1.6;
+}
+.explain-card {
+  background: var(--stone-light);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 0.9rem 1.1rem;
+  margin: 0.8rem 0;
+}
+.explain-card h3 {
+  margin: 0 0 0.4rem;
+  color: var(--gold-bright);
+  font-size: 1rem;
+}
+.explain-card p {
+  margin: 0;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.steps-title {
+  margin: 1.5rem 0 0.6rem;
+  font-family: Georgia, serif;
+  color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 1rem;
+}
+.steps {
+  margin: 0;
+  padding-left: 1.4rem;
+}
+.steps li {
+  margin: 0.55rem 0;
+  line-height: 1.55;
+}
+.steps code {
+  background: #131217;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+  color: var(--gold-bright);
+  font-size: 0.88em;
+}
+.steps code.path {
+  display: block;
+  margin-top: 0.3rem;
+  word-break: break-all;
+}
+.steps a {
+  color: var(--gold-bright);
+}
+.guide-download {
+  margin: 1.6rem 0 1rem;
+  text-align: center;
+}
+.guide-download .small {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+}
+.helper-steps {
+  margin-top: 0.75rem;
+}
+.helper-steps ol {
+  margin: 0 0 0.5rem;
+  padding-left: 1.3rem;
+}
+.helper-steps li {
+  margin: 0.3rem 0;
+}
+.helper-steps code {
+  background: #131217;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  color: var(--gold-bright);
+  font-size: 0.88em;
+}
+.small {
+  font-size: 0.85rem;
 }
 .titles h1 {
   margin: 0;
