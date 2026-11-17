@@ -2,4 +2,5 @@
 *.db-shm
 *.db-wal
 munkehub-api
-munkehub-api.exe*~
+munkehub-api.exe
+*~
