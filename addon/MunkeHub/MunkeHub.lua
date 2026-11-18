@@ -89,14 +89,21 @@ local function BuildDetailJSON()
             if GetInventoryItemQuality then
                 q = GetInventoryItemQuality("player", slot) or 0
             end
-            -- icon texture name (e.g. inv_sword_01) for the website
+            -- icon texture name (e.g. inv_sword_01) for the website.
+            -- GetItemInfoInstant is SYNCHRONOUS; GetItemInfo returns nil on
+            -- first call (async item cache) and would leave icons empty.
             local icon = ""
-            if GetItemInfo then
-                local _, _, _, _, _, _, _, _, _, texture = GetItemInfo(link)
-                if texture then
-                    icon = texture:match("([^\\]+)$") or ""
-                    icon = icon:gsub("%..*$", "")
-                end
+            local texture
+            if GetItemInfoInstant then
+                texture = select(10, GetItemInfoInstant(link))
+            elseif GetItemInfo then
+                local t
+                _, _, _, _, _, _, _, _, _, t = GetItemInfo(link)
+                texture = t
+            end
+            if texture then
+                icon = texture:match("([^\\]+)$") or ""
+                icon = icon:gsub("%..*$", "")
             end
             gear[#gear + 1] = string.format(
                 '{"slot":"%s","name":"%s","ilvl":%d,"q":%d,"icon":"%s"}',

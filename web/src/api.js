@@ -8,7 +8,11 @@ async function get(path) {
   return res.json();
 }
 
+// Bump on every release — shown in the footer so Emil can verify versions.
+export const WEB_VERSION = "0.8.2";
+
 export const api = {
+  health: () => fetch("/health").then((r) => r.json()),
   guild: () => get("/guild"),
   announcements: () => get("/announcements"),
   createAnnouncement: (data, token) =>

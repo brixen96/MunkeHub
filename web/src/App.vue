@@ -288,13 +288,17 @@
       </main>
 
     <footer>
-      <span>MunkeHub — private hall of Munkeklubben • WoW: Forever</span>
+      <span>
+        MunkeHub v{{ webVersion }}
+        <template v-if="apiVersion"> · API v{{ apiVersion }}</template>
+        — private hall of Munkeklubben • WoW: Forever
+      </span>
     </footer>
   </div>
 </template>
 
 <script>
-import { api } from "./api";
+import { api, WEB_VERSION } from "./api";
 
 // WoW class colours — iconic, instantly readable for players
 const CLASS_COLORS = {
@@ -321,6 +325,8 @@ export default {
       openRow: null,
       stats: null,
       guild: null,
+      webVersion: WEB_VERSION,
+      apiVersion: "",
       guildError: false,
       announcements: null,
       annError: false,
@@ -354,6 +360,12 @@ export default {
       this.stats = await api.stats();
     } catch {
       this.stats = null;
+    }
+    try {
+      const h = await api.health();
+      this.apiVersion = h.version || "";
+    } catch {
+      this.apiVersion = "?";
     }
   },
   methods: {
