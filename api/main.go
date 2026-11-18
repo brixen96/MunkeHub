@@ -7,10 +7,13 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"log"
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +22,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.0"
+const version = "0.8.1"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -93,6 +96,9 @@ func main() {
 
 		// Dashboard stats
 		api.GET("/stats", func(c *gin.Context) { guildStats(c, db) })
+
+		// Item icons: lazy-fetched from wow.zamimg.com, cached forever on disk
+		api.GET("/icon/:name", func(c *gin.Context) { serveIcon(c) })
 
 		// Generic setup package (NO token inside) for the website Download button
 		api.GET("/download", func(c *gin.Context) { serveDownload(c) })
@@ -421,6 +427,7 @@ func upsertDetail(c *gin.Context, db *sql.DB) {
 			Name string `json:"name"`
 			ILvl int    `json:"ilvl"`
 			Q    int    `json:"q"`
+			Icon string `json:"icon"`
 		} `json:"gear"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -533,6 +540,46 @@ func relayCharacters(c *gin.Context, db *sql.DB) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "count": len(in)})
+}
+
+// --- icons ------------------------------------------------------------------
+
+// iconRe: WoW icon names are lowercase letters, digits and underscores only.
+// Strict on purpose — the name becomes a file path and an upstream URL.
+var iconRe = regexp.MustCompile(`^[a-z0-9_]+$`)
+
+// serveIcon returns a WoW item icon. First request fetches it from
+// wow.zamimg.com (public icon CDN) and caches it under MUNKEHUB_ICONS;
+// afterwards it's served from local disk forever.
+func serveIcon(c *gin.Context) {
+	name := strings.ToLower(c.Param("name"))
+	if !iconRe.MatchString(name) {
+		c.String(http.StatusBadRequest, "bad icon name")
+		return
+	}
+	dir := envOr("MUNKEHUB_ICONS", "icons")
+	path := filepath.Join(dir, name+".jpg")
+	if _, err := os.Stat(path); err == nil {
+		c.File(path)
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	res, err := client.Get("https://wow.zamimg.com/images/wow/icons/large/" + name + ".jpg")
+	if err != nil {
+		c.String(http.StatusBadGateway, "icon fetch failed")
+		return
+	}
+	defer res.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(res.Body, 512*1024))
+	if res.StatusCode != http.StatusOK || len(data) == 0 {
+		c.String(http.StatusNotFound, "icon not found")
+		return
+	}
+	if err := os.MkdirAll(dir, 0755); err == nil {
+		_ = os.WriteFile(path, data, 0644)
+	}
+	c.Data(http.StatusOK, "image/jpeg", data)
 }
 
 // --- download ---------------------------------------------------------------

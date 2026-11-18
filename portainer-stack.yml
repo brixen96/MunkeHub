@@ -15,6 +15,8 @@ services:
     environment:
       - MUNKEHUB_PORT=8080
       - MUNKEHUB_DB=/data/munkehub.db
+      # Item icon cache (lazy-fetched from zamimg, persisted across restarts)
+      - MUNKEHUB_ICONS=/data/icons
       # Admin token: used to mint per-member tokens (POST /api/v1/tokens).
       # CHANGE THIS to your own secret before deploying!
       - MUNKEHUB_ADMIN_TOKEN=LEsfAcdEfTMU1BMzx15quKliFbEoWJ6SOzEaLEDakeeYBIKexUfwwQqb2zSZbrhk

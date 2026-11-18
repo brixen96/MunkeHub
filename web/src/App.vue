@@ -121,6 +121,9 @@
                       <div v-if="parseGear(c).length" class="gear-grid">
                         <div v-for="g in parseGear(c)" :key="g.slot" class="gear-slot"
                              :class="'q' + g.q" :title="g.name">
+                          <img v-if="g.icon" class="gear-icon"
+                               :src="'/api/v1/icon/' + g.icon" alt=""
+                               loading="lazy" @error="$event.target.style.display = 'none'">
                           <span class="gear-slot-name">{{ g.slot }}</span>
                           <span class="gear-item">{{ g.name || 'empty' }}</span>
                           <span class="gear-ilvl">{{ g.ilvl || '' }}</span>
@@ -802,6 +805,14 @@ main {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+.gear-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--edge);
+  image-rendering: auto;
+  margin-bottom: 0.2rem;
 }
 .gear-slot.q4 { border-left-color: #ff8000; }  /* epic */
 .gear-slot.q3 { border-left-color: #a335ee; }  /* rare */

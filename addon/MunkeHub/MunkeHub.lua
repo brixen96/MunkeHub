@@ -89,9 +89,18 @@ local function BuildDetailJSON()
             if GetInventoryItemQuality then
                 q = GetInventoryItemQuality("player", slot) or 0
             end
+            -- icon texture name (e.g. inv_sword_01) for the website
+            local icon = ""
+            if GetItemInfo then
+                local _, _, _, _, _, _, _, _, _, texture = GetItemInfo(link)
+                if texture then
+                    icon = texture:match("([^\\]+)$") or ""
+                    icon = icon:gsub("%..*$", "")
+                end
+            end
             gear[#gear + 1] = string.format(
-                '{"slot":"%s","name":"%s","ilvl":%d,"q":%d}',
-                esc(slotName), esc(name), ilvl, q)
+                '{"slot":"%s","name":"%s","ilvl":%d,"q":%d,"icon":"%s"}',
+                esc(slotName), esc(name), ilvl, q, esc(icon))
         end
     end
 
