@@ -124,8 +124,8 @@
                       <div v-if="parseGear(c).length" class="gear-grid">
                         <div v-for="g in parseGear(c)" :key="g.slot" class="gear-slot"
                              :class="'q' + g.q" :title="g.name">
-                          <img v-if="g.icon" class="gear-icon"
-                               :src="'/api/v1/icon/' + g.icon" alt=""
+                          <img v-if="g.id" class="gear-icon"
+                               :src="'/api/v1/icon/' + g.id" alt=""
                                loading="lazy" @error="$event.target.style.display = 'none'">
                           <span class="gear-slot-name">{{ g.slot }}</span>
                           <span class="gear-item">{{ g.name || 'empty' }}</span>

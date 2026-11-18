@@ -1,4 +1,4 @@
--- MunkeHub v0.8.4 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.5 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -111,24 +111,12 @@ local function BuildDetailJSON()
                 q = C_Item.GetItemQualityByID(itemID) or 0
             end
 
-            -- icon texture name (e.g. inv_sword_01) for the website.
-            -- C_Item.GetItemInfoInstant is SYNCHRONOUS (GetItemInfo is async).
-            -- Return layout: 1=itemID 2=itemLink 3=itemName 4=itemEquipLoc
-            --                5=icon 6=itemClassID 7=itemSubClassID 8=bindType
-            local icon = ""
-            local texture
-            if C_Item and C_Item.GetItemInfoInstant then
-                texture = select(5, C_Item.GetItemInfoInstant(link))
-            elseif GetItemInfoInstant then
-                texture = select(5, GetItemInfoInstant(link))
-            end
-            if texture then
-                icon = tostring(texture):match("([^\\]+)$") or ""
-                icon = icon:gsub("%..*$", "")
-            end
+            -- The game only exposes icon FILEIDS (numbers like 134592),
+            -- never texture names — so we send the itemID instead and the
+            -- API resolves itemID -> icon name server-side (cached).
             gear[#gear + 1] = string.format(
-                '{"slot":"%s","name":"%s","ilvl":%d,"q":%d,"icon":"%s"}',
-                esc(slotName), esc(name), ilvl, q, esc(icon))
+                '{"slot":"%s","name":"%s","ilvl":%d,"q":%d,"id":%d}',
+                esc(slotName), esc(name), ilvl, q, itemID)
         end
     end
 

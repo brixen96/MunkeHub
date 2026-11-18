@@ -9,7 +9,7 @@ async function get(path) {
 }
 
 // Bump on every release — shown in the footer so Emil can verify versions.
-export const WEB_VERSION = "0.8.4";
+export const WEB_VERSION = "0.8.5";
 
 export const api = {
   health: () => fetch("/health").then((r) => r.json()),

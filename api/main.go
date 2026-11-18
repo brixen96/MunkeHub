@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"math"
@@ -22,7 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.4"
+const version = "0.8.5"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -548,32 +549,98 @@ func relayCharacters(c *gin.Context, db *sql.DB) {
 // Strict on purpose — the name becomes a file path and an upstream URL.
 var iconRe = regexp.MustCompile(`^[a-z0-9_]+$`)
 
-// serveIcon returns a WoW item icon. First request fetches it from
-// wow.zamimg.com (public icon CDN) and caches it under MUNKEHUB_ICONS;
-// afterwards it's served from local disk forever.
+// itemIDRe: pure digits — the addon sends itemIDs (the game only exposes
+// numeric icon fileIDs, never texture names).
+var itemIDRe = regexp.MustCompile(`^[0-9]+$`)
+
+// wowheadIconRe extracts the texture name from wowhead's tooltip JSON:
+// {"name":"...","quality":5,"icon":"inv_sword_39",...}
+var wowheadIconRe = regexp.MustCompile(`"icon":"([a-z0-9_]+)"`)
+
+// fetchZamIcon downloads an icon by texture name from the public zamimg CDN.
+// Returns the bytes, or an HTTP status to reply with on failure.
+func fetchZamIcon(name string) ([]byte, int) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	res, err := client.Get("https://wow.zamimg.com/images/wow/icons/large/" + name + ".jpg")
+	if err != nil {
+		return nil, http.StatusBadGateway
+	}
+	defer res.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(res.Body, 512*1024))
+	if res.StatusCode != http.StatusOK || len(data) == 0 {
+		return nil, http.StatusNotFound
+	}
+	return data, 0
+}
+
+// resolveItemIcon maps an itemID to its texture name via wowhead's public
+// tooltip API. The game client only gives us numbers, so this is the bridge.
+func resolveItemIcon(itemID string) (string, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("GET", "https://nether.wowhead.com/tooltip/item/"+itemID, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (MunkeHub)")
+	res, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("wowhead status %d", res.StatusCode)
+	}
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 256*1024))
+	m := wowheadIconRe.FindSubmatch(body)
+	if m == nil {
+		return "", fmt.Errorf("no icon in wowhead response")
+	}
+	return string(m[1]), nil
+}
+
+// serveIcon returns a WoW item icon. Accepts either a texture name
+// (inv_sword_01) or a numeric itemID (resolved via wowhead, then fetched
+// from zamimg). Everything is cached under MUNKEHUB_ICONS forever.
 func serveIcon(c *gin.Context) {
 	name := strings.ToLower(c.Param("name"))
+	dir := envOr("MUNKEHUB_ICONS", "icons")
+
+	if itemIDRe.MatchString(name) {
+		// itemID path: cache the resolved image as item_<id>.jpg
+		cached := filepath.Join(dir, "item_"+name+".jpg")
+		if _, err := os.Stat(cached); err == nil {
+			c.File(cached)
+			return
+		}
+		iconName, err := resolveItemIcon(name)
+		if err != nil {
+			c.String(http.StatusNotFound, "icon not found")
+			return
+		}
+		data, fail := fetchZamIcon(iconName)
+		if fail != 0 {
+			c.String(fail, "icon fetch failed")
+			return
+		}
+		if err := os.MkdirAll(dir, 0755); err == nil {
+			_ = os.WriteFile(cached, data, 0644)
+		}
+		c.Data(http.StatusOK, "image/jpeg", data)
+		return
+	}
+
 	if !iconRe.MatchString(name) {
 		c.String(http.StatusBadRequest, "bad icon name")
 		return
 	}
-	dir := envOr("MUNKEHUB_ICONS", "icons")
 	path := filepath.Join(dir, name+".jpg")
 	if _, err := os.Stat(path); err == nil {
 		c.File(path)
 		return
 	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	res, err := client.Get("https://wow.zamimg.com/images/wow/icons/large/" + name + ".jpg")
-	if err != nil {
-		c.String(http.StatusBadGateway, "icon fetch failed")
-		return
-	}
-	defer res.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(res.Body, 512*1024))
-	if res.StatusCode != http.StatusOK || len(data) == 0 {
-		c.String(http.StatusNotFound, "icon not found")
+	data, fail := fetchZamIcon(name)
+	if fail != 0 {
+		c.String(fail, "icon fetch failed")
 		return
 	}
 	if err := os.MkdirAll(dir, 0755); err == nil {

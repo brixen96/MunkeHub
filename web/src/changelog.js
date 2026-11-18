@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.5",
+    date: "2026-11-18",
+    entries: [
+      "Gear icons now resolve correctly (item ID → icon lookup on the server).",
+    ],
+  },
+  {
     version: "0.8.4",
     date: "2026-11-18",
     entries: [
