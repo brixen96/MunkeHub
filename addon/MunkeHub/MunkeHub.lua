@@ -92,10 +92,14 @@ local function BuildDetailJSON()
             -- icon texture name (e.g. inv_sword_01) for the website.
             -- GetItemInfoInstant is SYNCHRONOUS; GetItemInfo returns nil on
             -- first call (async item cache) and would leave icons empty.
+            -- Return layout of GetItemInfoInstant:
+            --   1=itemID 2=itemLink 3=itemName 4=itemEquipLoc 5=icon
+            --   6=itemClassID 7=itemSubClassID 8=bindType
+            -- (icon is NOT at position 10 — that is GetItemInfo's layout)
             local icon = ""
             local texture
             if GetItemInfoInstant then
-                texture = select(10, GetItemInfoInstant(link))
+                texture = select(5, GetItemInfoInstant(link))
             elseif GetItemInfo then
                 local t
                 _, _, _, _, _, _, _, _, _, t = GetItemInfo(link)

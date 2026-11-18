@@ -29,6 +29,9 @@
         <button :class="{ active: tab === 'news' }" @click="tab = 'news'">
           Announcements
         </button>
+        <button :class="{ active: tab === 'changelog' }" @click="tab = 'changelog'">
+          Changelog
+        </button>
       </nav>
     </header>
 
@@ -285,6 +288,28 @@
         </div>
       </section>
 
+      <!-- ================= CHANGELOG ================= -->
+      <section v-show="tab === 'changelog'">
+        <div class="panel">
+          <h2 class="panel-title">
+            Changelog
+            <span class="cl-current">v{{ webVersion }}</span>
+          </h2>
+          <p class="cl-intro muted">
+            What changed in MunkeHub — newest first.
+          </p>
+          <div v-for="rel in changelog" :key="rel.version" class="cl-release">
+            <div class="cl-head">
+              <span class="cl-ver">v{{ rel.version }}</span>
+              <span class="cl-date">{{ rel.date }}</span>
+            </div>
+            <ul class="cl-list">
+              <li v-for="(e, i) in rel.entries" :key="i">{{ e }}</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       </main>
 
     <footer>
@@ -299,6 +324,7 @@
 
 <script>
 import { api, WEB_VERSION } from "./api";
+import { CHANGELOG } from "./changelog";
 
 // WoW class colours — iconic, instantly readable for players
 const CLASS_COLORS = {
@@ -327,6 +353,7 @@ export default {
       guild: null,
       webVersion: WEB_VERSION,
       apiVersion: "",
+      changelog: CHANGELOG,
       guildError: false,
       announcements: null,
       annError: false,
@@ -550,6 +577,48 @@ body {
   margin: 0.55rem 0;
   line-height: 1.55;
 }
+/* ---------------- changelog ---------------- */
+.cl-current {
+  float: right;
+  font-size: 0.85rem;
+  color: var(--gold-bright);
+  letter-spacing: 0.04em;
+}
+.cl-intro {
+  margin: -0.4rem 0 1rem;
+  font-size: 0.92rem;
+}
+.cl-release {
+  background: var(--stone-light);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 0.8rem 1.1rem;
+  margin: 0.7rem 0;
+}
+.cl-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  margin-bottom: 0.35rem;
+}
+.cl-ver {
+  font-family: Georgia, serif;
+  font-weight: bold;
+  color: var(--gold-bright);
+}
+.cl-date {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.cl-list {
+  margin: 0;
+  padding-left: 1.3rem;
+}
+.cl-list li {
+  margin: 0.3rem 0;
+  line-height: 1.5;
+}
+
 .steps code {
   background: #131217;
   border: 1px solid var(--edge);
