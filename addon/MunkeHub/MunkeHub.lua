@@ -1,4 +1,4 @@
--- MunkeHub v0.8.9 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.11 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -61,9 +61,11 @@ end
 -- Deep detail for the expandable roster rows. NEVER relayed (240-byte cap) —
 -- only the helper uploads this via SavedVariables.
 local GEAR_SLOTS = {
-    [1] = "Head", [2] = "Neck", [3] = "Shoulder", [5] = "Chest",
-    [6] = "Waist", [7] = "Legs", [8] = "Feet", [9] = "Wrist",
-    [10] = "Hands", [15] = "Back", [16] = "MainHand", [17] = "OffHand",
+    [1] = "Head", [2] = "Neck", [3] = "Shoulder", [4] = "Shirt",
+    [5] = "Chest", [6] = "Waist", [7] = "Legs", [8] = "Feet",
+    [9] = "Wrist", [10] = "Hands", [11] = "Ring1", [12] = "Ring2",
+    [13] = "Trinket1", [14] = "Trinket2", [15] = "Back",
+    [16] = "MainHand", [17] = "OffHand", [18] = "Ranged", [19] = "Tabard",
 }
 
 -- WoW: Forever uses the modern API namespaces (C_Item, C_SpecializationInfo).

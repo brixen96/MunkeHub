@@ -2,6 +2,20 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.11",
+    date: "2026-11-18",
+    entries: [
+      "Gear now laid out exactly like the in-game character sheet (all 19 slots: shirt, tabard, rings, trinkets, ranged).",
+    ],
+  },
+  {
+    version: "0.8.10",
+    date: "2026-11-18",
+    entries: [
+      "Paper-doll gear layout and avatar padding.",
+    ],
+  },
+  {
     version: "0.8.9",
     date: "2026-11-18",
     entries: [
