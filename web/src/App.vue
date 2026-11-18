@@ -93,7 +93,7 @@
                       <span v-else v-html="classGlyph(c.class)"></span>
                     </span>
                     <span class="char-name" :class="classSlug(c.class)">
-                      {{ c.name }}<template v-if="c.last_name"> {{ c.last_name }}</template>
+                      {{ fullName(c) }}
                     </span>
                     <span class="realm">{{ c.realm }}</span>
                   </td>
@@ -124,15 +124,42 @@
                           <span class="detail-v">{{ formatPlayed(c) }}</span>
                         </div>
                       </div>
-                      <div v-if="parseGear(c).length" class="gear-grid">
-                        <div v-for="g in parseGear(c)" :key="g.slot" class="gear-slot"
-                             :class="'q' + g.q" :title="g.name">
-                          <img v-if="g.fid || g.id" class="gear-icon"
-                               :src="'/api/v1/icon/' + (g.fid || g.id)" alt=""
+                      <div v-if="parseGear(c).length" class="paperdoll">
+                        <div class="pd-col">
+                          <div v-for="g in pdSlots(c, PD_LEFT)" :key="g.slot"
+                               class="gear-slot" :class="'q' + g.q" :title="g.name">
+                            <img v-if="g.fid || g.id" class="gear-icon"
+                                 :src="'/api/v1/icon/' + (g.fid || g.id)" alt=""
+                                 loading="lazy" @error="$event.target.style.display = 'none'">
+                            <span class="pd-text">
+                              <span class="gear-slot-name">{{ g.slot }}</span>
+                              <span class="gear-item">{{ g.name || 'empty' }}</span>
+                              <span class="gear-ilvl">{{ g.ilvl || '' }}</span>
+                            </span>
+                          </div>
+                        </div>
+                        <div class="pd-center">
+                          <img v-if="avatarSrc(c)" class="pd-avatar" :src="avatarSrc(c)" alt=""
                                loading="lazy" @error="$event.target.style.display = 'none'">
-                          <span class="gear-slot-name">{{ g.slot }}</span>
-                          <span class="gear-item">{{ g.name || 'empty' }}</span>
-                          <span class="gear-ilvl">{{ g.ilvl || '' }}</span>
+                          <span v-else class="pd-avatar pd-glyph" v-html="classGlyph(c.class)"></span>
+                          <span class="pd-name">{{ fullName(c) }}</span>
+                          <span class="pd-class" :class="classSlug(c.class)">
+                            {{ c.class }} · lvl {{ c.level }}
+                          </span>
+                          <span class="pd-spec">{{ c.spec || '—' }}</span>
+                        </div>
+                        <div class="pd-col">
+                          <div v-for="g in pdSlots(c, PD_RIGHT)" :key="g.slot"
+                               class="gear-slot" :class="'q' + g.q" :title="g.name">
+                            <img v-if="g.fid || g.id" class="gear-icon"
+                                 :src="'/api/v1/icon/' + (g.fid || g.id)" alt=""
+                                 loading="lazy" @error="$event.target.style.display = 'none'">
+                            <span class="pd-text">
+                              <span class="gear-slot-name">{{ g.slot }}</span>
+                              <span class="gear-item">{{ g.name || 'empty' }}</span>
+                              <span class="gear-ilvl">{{ g.ilvl || '' }}</span>
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <p v-else class="muted small">
@@ -346,6 +373,11 @@ const CLASS_COLORS = {
   evoker: "#33937F",
 };
 
+// WoW character-sheet slot order: left column = armor down the body,
+// right column = neck + weapons (like the in-game paper doll).
+const PD_LEFT = ["Head", "Shoulder", "Back", "Chest", "Wrist", "Hands", "Waist", "Legs", "Feet"];
+const PD_RIGHT = ["Neck", "MainHand", "OffHand"];
+
 // Class icon texture fileIDs (from the Forever client — served by
 // foreverdb.net through our icon endpoint). Used when no spec icon exists.
 const CLASS_ICON_FID = {
@@ -364,6 +396,8 @@ export default {
   name: "App",
   data() {
     return {
+      PD_LEFT,
+      PD_RIGHT,
       tab: "roster",
       openRow: null,
       stats: null,
@@ -420,6 +454,9 @@ export default {
     classSlug(cls) {
       return "c-" + (cls || "").toLowerCase().replace(/[^a-z]/g, "");
     },
+    fullName(c) {
+      return c.last_name ? c.name + " " + c.last_name : c.name;
+    },
     // Avatar: spec icon when available, else the class icon (fileIDs served
     // by foreverdb.net through our icon endpoint), else the SVG glyph below.
     avatarSrc(c) {
@@ -459,6 +496,21 @@ export default {
       } catch {
         return [];
       }
+    },
+    // Paper-doll ordering: slots in `order`, unknown slots appended to the
+    // right column so nothing ever disappears.
+    pdSlots(c, order) {
+      const gear = this.parseGear(c);
+      const bySlot = {};
+      gear.forEach((g) => (bySlot[g.slot] = g));
+      const picked = order.map((s) => bySlot[s]).filter(Boolean);
+      if (order === PD_RIGHT) {
+        const known = new Set([...PD_LEFT, ...PD_RIGHT]);
+        gear.forEach((g) => {
+          if (!known.has(g.slot)) picked.push(g);
+        });
+      }
+      return picked;
     },
     formatPlayed(c) {
       const h = Math.floor((c.played || 0) / 3600);
@@ -862,6 +914,14 @@ main {
 .avatar svg {
   display: block;
 }
+.avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  padding: 3px; /* keep the icon off the class-coloured ring */
+}
 .chevron.open {
   transform: rotate(90deg);
 }
@@ -896,28 +956,91 @@ main {
   color: var(--ink);
   font-weight: 600;
 }
-.gear-grid {
+/* ---------------- paper doll (WoW character sheet) ---------------- */
+.paperdoll {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 0.45rem;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: start;
+}
+.pd-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.pd-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.6rem 1rem;
+  background: var(--stone);
+  border: 1px solid var(--edge);
+  border-top: 2px solid var(--gold);
+  border-radius: 8px;
+  min-width: 150px;
+  text-align: center;
+}
+.pd-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+  background: #131217;
+  object-fit: cover;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.pd-avatar.pd-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gold);
+}
+.pd-avatar.pd-glyph svg {
+  width: 30px;
+  height: 30px;
+}
+.pd-name {
+  font-weight: 700;
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+.pd-class {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+.pd-spec {
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 .gear-slot {
   background: var(--stone);
   border: 1px solid var(--edge);
   border-left: 3px solid #6b7480;
   border-radius: 5px;
-  padding: 0.35rem 0.55rem;
+  padding: 0.3rem 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.pd-text {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1;
 }
 .gear-icon {
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
+  flex: none;
   border-radius: 4px;
   border: 1px solid var(--edge);
   image-rendering: auto;
-  margin-bottom: 0.2rem;
 }
 .gear-slot.q4 { border-left-color: #ff8000; }  /* epic */
 .gear-slot.q3 { border-left-color: #a335ee; }  /* rare */
@@ -1104,6 +1227,12 @@ footer {
   .realm { display: inline; margin-left: 0.4rem; }
   .avatar { width: 28px; height: 28px; }
   .avatar svg { width: 18px; height: 18px; }
+  .avatar img { padding: 2px; }
+
+  /* paper doll stacks: center card first, then one column of slots */
+  .paperdoll { grid-template-columns: 1fr; }
+  .pd-center { order: -1; min-width: 0; }
+  .pd-avatar { width: 48px; height: 48px; }
 
   /* detail row spans full width, no fake label */
   .detail-row td { display: block; }

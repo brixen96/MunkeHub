@@ -22,3 +22,6 @@ admin/config.json
 # OS
 .DS_Store
 Thumbs.db
+api/icons_test/
+api/preview_*.json
+api/preview.db
