@@ -1,4 +1,4 @@
--- MunkeHub v0.8.11 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.12 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -37,10 +37,22 @@ local function LastName()
     return ""
 end
 
+-- Blizzard character ID from the GUID (Player-6951-00EB3BEC -> 15416300).
+-- The website builds the 3D model render URL from it.
+local function BlizzardID()
+    if not UnitGUID then return 0 end
+    local guid = UnitGUID("player")
+    if type(guid) ~= "string" then return 0 end
+    local hex = guid:match("-([0-9A-Fa-f]+)$")
+    if not hex then return 0 end
+    return tonumber(hex, 16) or 0
+end
+
 local function BuildSyncJSON()
     local name = UnitName("player") or ""
     local lastName = LastName()
     local realm = GetRealmName() or ""
+    local bid = BlizzardID()
     local race = UnitRace("player") or ""
     local class = select(2, UnitClass("player")) or ""
     local level = UnitLevel("player") or 0
@@ -54,8 +66,8 @@ local function BuildSyncJSON()
         return (tostring(s):gsub('[\\"]', function(c) return "\\" .. c end))
     end
     return string.format(
-        '{"name":"%s","last_name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s}',
-        esc(name), esc(lastName), esc(realm), esc(race), esc(class), level, tostring(ilvl))
+        '{"name":"%s","last_name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s,"bid":%d}',
+        esc(name), esc(lastName), esc(realm), esc(race), esc(class), level, tostring(ilvl), bid)
 end
 
 -- Deep detail for the expandable roster rows. NEVER relayed (240-byte cap) —

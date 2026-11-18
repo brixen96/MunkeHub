@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.12",
+    date: "2026-11-18",
+    entries: [
+      "Armory-style character sheet: 3D character model, gearscore, quality-bordered gear icons with item levels.",
+    ],
+  },
+  {
     version: "0.8.11",
     date: "2026-11-18",
     entries: [

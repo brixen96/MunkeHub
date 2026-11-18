@@ -110,11 +110,34 @@
                 <tr v-if="openRow === c.id" class="detail-row">
                   <td colspan="6">
                     <div class="detail-panel">
-                      <div class="detail-core">
-                        <div class="detail-item">
-                          <span class="detail-k">Spec</span>
-                          <span class="detail-v">{{ c.spec || '—' }}</span>
+                      <!-- armory-style hero -->
+                      <div class="armory-hero">
+                        <div class="ah-left">
+                          <img v-if="avatarSrc(c)" class="ah-avatar" :src="avatarSrc(c)" alt=""
+                               loading="lazy" @error="$event.target.style.display = 'none'">
+                          <div>
+                            <p class="ah-meta">
+                              Level {{ c.level }} · {{ c.race }} · {{ c.class }}
+                            </p>
+                            <h3 class="ah-name">{{ fullName(c) }}</h3>
+                            <p class="ah-sub">
+                              {{ c.realm }}
+                              <span v-if="c.spec" class="ah-spec">{{ c.spec }}</span>
+                            </p>
+                          </div>
                         </div>
+                        <div class="ah-stats">
+                          <div class="ah-stat">
+                            <b>{{ gearscore(c) }}</b>
+                            <span>Gearscore</span>
+                          </div>
+                          <div class="ah-stat">
+                            <b>{{ Math.round(c.ilvl) }}</b>
+                            <span>Item level</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="detail-core">
                         <div class="detail-item">
                           <span class="detail-k">Zone</span>
                           <span class="detail-v">{{ c.zone || '—' }}</span>
@@ -127,51 +150,41 @@
                       <div v-if="parseGear(c).length" class="paperdoll">
                         <div class="pd-col">
                           <div v-for="g in pdSlots(c, PD_LEFT)" :key="g.slot"
-                               class="gear-slot" :class="'q' + g.q" :title="g.name">
+                               class="gear-slot" :class="['q' + g.q, { empty: !g.id }]"
+                               :title="g.name || g.slot">
                             <img v-if="g.fid || g.id" class="gear-icon"
                                  :src="'/api/v1/icon/' + (g.fid || g.id)" alt=""
                                  loading="lazy" @error="$event.target.style.display = 'none'">
-                            <span class="pd-text">
-                              <span class="gear-slot-name">{{ g.slot }}</span>
-                              <span class="gear-item">{{ g.name || 'empty' }}</span>
-                              <span class="gear-ilvl">{{ g.ilvl || '' }}</span>
-                            </span>
+                            <span v-if="g.ilvl" class="gear-badge">{{ g.ilvl }}</span>
                           </div>
                         </div>
                         <div class="pd-center">
-                          <img v-if="avatarSrc(c)" class="pd-avatar" :src="avatarSrc(c)" alt=""
-                               loading="lazy" @error="$event.target.style.display = 'none'">
-                          <span v-else class="pd-avatar pd-glyph" v-html="classGlyph(c.class)"></span>
-                          <span class="pd-name">{{ fullName(c) }}</span>
-                          <span class="pd-class" :class="classSlug(c.class)">
-                            {{ c.class }} · lvl {{ c.level }}
-                          </span>
-                          <span class="pd-spec">{{ c.spec || '—' }}</span>
+                          <img v-if="renderSrc(c)" class="pd-render" :src="renderSrc(c)" alt=""
+                               loading="lazy" @error="markRenderFail(c)">
+                          <template v-else>
+                            <img v-if="avatarSrc(c)" class="pd-avatar" :src="avatarSrc(c)" alt=""
+                                 loading="lazy" @error="$event.target.style.display = 'none'">
+                            <span v-else class="pd-avatar pd-glyph" v-html="classGlyph(c.class)"></span>
+                          </template>
                         </div>
                         <div class="pd-col">
                           <div v-for="g in pdSlots(c, PD_RIGHT)" :key="g.slot"
-                               class="gear-slot" :class="'q' + g.q" :title="g.name">
+                               class="gear-slot" :class="['q' + g.q, { empty: !g.id }]"
+                               :title="g.name || g.slot">
                             <img v-if="g.fid || g.id" class="gear-icon"
                                  :src="'/api/v1/icon/' + (g.fid || g.id)" alt=""
                                  loading="lazy" @error="$event.target.style.display = 'none'">
-                            <span class="pd-text">
-                              <span class="gear-slot-name">{{ g.slot }}</span>
-                              <span class="gear-item">{{ g.name || 'empty' }}</span>
-                              <span class="gear-ilvl">{{ g.ilvl || '' }}</span>
-                            </span>
+                            <span v-if="g.ilvl" class="gear-badge">{{ g.ilvl }}</span>
                           </div>
                         </div>
                         <div class="pd-bottom">
                           <div v-for="g in pdSlots(c, PD_BOTTOM)" :key="g.slot"
-                               class="gear-slot pd-wide" :class="'q' + g.q" :title="g.name">
+                               class="gear-slot" :class="['q' + g.q, { empty: !g.id }]"
+                               :title="g.name || g.slot">
                             <img v-if="g.fid || g.id" class="gear-icon"
                                  :src="'/api/v1/icon/' + (g.fid || g.id)" alt=""
                                  loading="lazy" @error="$event.target.style.display = 'none'">
-                            <span class="pd-text">
-                              <span class="gear-slot-name">{{ g.slot }}</span>
-                              <span class="gear-item">{{ g.name || 'empty' }}</span>
-                              <span class="gear-ilvl">{{ g.ilvl || '' }}</span>
-                            </span>
+                            <span v-if="g.ilvl" class="gear-badge">{{ g.ilvl }}</span>
                           </div>
                         </div>
                       </div>
@@ -414,6 +427,7 @@ export default {
       PD_LEFT,
       PD_RIGHT,
       PD_BOTTOM,
+      renderFailed: {},
       tab: "roster",
       openRow: null,
       stats: null,
@@ -472,6 +486,27 @@ export default {
     },
     fullName(c) {
       return c.last_name ? c.name + " " + c.last_name : c.name;
+    },
+    // 3D character render from Blizzard's render service. Bucket = id % 256.
+    renderSrc(c) {
+      if (!c.bid || this.renderFailed[c.id]) return "";
+      const bucket = c.bid % 256;
+      return (
+        "https://render.worldofwarcraft.com/forever-eu/character/" +
+        bucket + "/" + c.bid + "-main-raw.png"
+      );
+    },
+    markRenderFail(c) {
+      this.renderFailed = { ...this.renderFailed, [c.id]: true };
+    },
+    // Armory gearscore: sum of round(ilvl * quality weight).
+    // Weights verified against armorywowforever.com (302 for Brix).
+    gearscore(c) {
+      const w = { 1: 0.5, 2: 0.6, 3: 0.7, 4: 0.8 };
+      return this.parseGear(c).reduce(
+        (sum, g) => sum + Math.round((g.ilvl || 0) * (w[g.q] || 0)),
+        0
+      );
     },
     // Avatar: spec icon when available, else the class icon (fileIDs served
     // by foreverdb.net through our icon endpoint), else the SVG glyph below.
@@ -972,45 +1007,121 @@ main {
   color: var(--ink);
   font-weight: 600;
 }
-/* ---------------- paper doll (WoW character sheet) ---------------- */
+/* ---------------- armory hero ---------------- */
+.armory-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  background: linear-gradient(180deg, #1b2430, #141a22);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  margin-bottom: 0.8rem;
+}
+.ah-left {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+}
+.ah-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  border: 2px solid var(--gold);
+  background: #131217;
+  object-fit: cover;
+  padding: 3px;
+  flex: none;
+}
+.ah-meta {
+  margin: 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.ah-name {
+  margin: 0.1rem 0;
+  font-family: Georgia, serif;
+  font-size: 1.5rem;
+  color: var(--gold-bright);
+  line-height: 1.1;
+}
+.ah-sub {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.ah-spec {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.5rem;
+  background: #23303f;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  color: var(--ink);
+}
+.ah-stats {
+  display: flex;
+  gap: 1.4rem;
+}
+.ah-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.ah-stat b {
+  font-size: 2rem;
+  line-height: 1;
+  color: var(--gold-bright);
+}
+.ah-stat span {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+/* ---------------- paper doll (armory style) ---------------- */
 .paperdoll {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 0.7rem;
   align-items: start;
 }
-/* weapons row spans all columns, under the character card */
+/* weapons row spans all columns, under the character render */
 .pd-bottom {
   grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.4rem;
-}
-.pd-wide {
-  min-width: 0;
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
 }
 .pd-col {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.5rem;
   min-width: 0;
 }
 .pd-center {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.6rem 1rem;
-  background: var(--stone);
-  border: 1px solid var(--edge);
-  border-top: 2px solid var(--gold);
-  border-radius: 8px;
-  min-width: 150px;
-  text-align: center;
+  justify-content: flex-end;
+  min-width: 220px;
+  min-height: 340px;
+}
+.pd-render {
+  max-height: 420px;
+  max-width: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55));
 }
 .pd-avatar {
-  width: 56px;
-  height: 56px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   border: 2px solid var(--gold);
   background: #131217;
@@ -1025,48 +1136,48 @@ main {
   color: var(--gold);
 }
 .pd-avatar.pd-glyph svg {
-  width: 30px;
-  height: 30px;
+  width: 48px;
+  height: 48px;
 }
-.pd-name {
-  font-weight: 700;
-  color: var(--ink);
-  font-size: 0.95rem;
-}
-.pd-class {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 700;
-}
-.pd-spec {
-  font-size: 0.75rem;
-  color: var(--muted);
-}
+
+/* square icon slots with quality border + ilvl badge (armory look) */
 .gear-slot {
-  background: var(--stone);
-  border: 1px solid var(--edge);
-  border-left: 3px solid #6b7480;
-  border-radius: 5px;
-  padding: 0.3rem 0.5rem;
+  position: relative;
+  width: 46px;
+  height: 46px;
+  background: #0e0d11;
+  border: 2px solid #6b7480;
+  border-radius: 4px;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-}
-.pd-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-.gear-icon {
-  width: 30px;
-  height: 30px;
+  justify-content: center;
   flex: none;
-  border-radius: 4px;
-  border: 1px solid var(--edge);
+}
+.gear-slot.empty {
+  opacity: 0.35;
+}
+.gear-slot.q1 { border-color: #9d9d9d; }
+.gear-slot.q2 { border-color: #1eff00; }
+.gear-slot.q3 { border-color: #0070dd; }
+.gear-slot.q4 { border-color: #a335ee; }
+.gear-slot.q5 { border-color: #ff8000; }
+.gear-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 2px;
   image-rendering: auto;
+}
+.gear-badge {
+  position: absolute;
+  right: 1px;
+  bottom: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.75);
+  padding: 0 3px;
+  border-radius: 3px 0 0 0;
+  line-height: 1.3;
 }
 .gear-slot.q4 { border-left-color: #ff8000; }  /* epic */
 .gear-slot.q3 { border-left-color: #a335ee; }  /* rare */
@@ -1255,10 +1366,14 @@ footer {
   .avatar svg { width: 18px; height: 18px; }
   .avatar img { padding: 2px; }
 
-  /* paper doll stacks: center card first, then one column of slots */
+  /* paper doll stacks: render first, then slot columns */
   .paperdoll { grid-template-columns: 1fr; }
-  .pd-center { order: -1; min-width: 0; }
-  .pd-avatar { width: 48px; height: 48px; }
+  .pd-center { order: -1; min-width: 0; min-height: 0; }
+  .pd-render { max-height: 260px; }
+  .pd-avatar { width: 72px; height: 72px; }
+  .pd-bottom { justify-content: flex-start; flex-wrap: wrap; }
+  .ah-name { font-size: 1.2rem; }
+  .ah-stat b { font-size: 1.5rem; }
 
   /* detail row spans full width, no fake label */
   .detail-row td { display: block; }

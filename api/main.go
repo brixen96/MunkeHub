@@ -23,7 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.11"
+const version = "0.8.12"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -47,6 +47,7 @@ type Character struct {
 	ILvl      float64   `json:"ilvl"`
 	Spec      string    `json:"spec"`
 	SpecIcon  int       `json:"spec_icon"` // spec icon texture fileID
+	Bid       int64     `json:"bid"`       // Blizzard character ID (3D render)
 	Zone      string    `json:"zone"`
 	Played    int       `json:"played"` // seconds
 	Detail    string    `json:"detail"` // gear JSON array (empty if not synced)
@@ -152,6 +153,7 @@ func migrate(db *sql.DB) error {
 			ilvl       REAL NOT NULL DEFAULT 0,
 			spec       TEXT NOT NULL DEFAULT '',
 			spec_icon  INTEGER NOT NULL DEFAULT 0,
+			bid        INTEGER NOT NULL DEFAULT 0,
 			zone       TEXT NOT NULL DEFAULT '',
 			played     INTEGER NOT NULL DEFAULT 0,
 			detail     TEXT NOT NULL DEFAULT '',
@@ -171,6 +173,7 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE characters ADD COLUMN detail TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE characters ADD COLUMN last_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE characters ADD COLUMN spec_icon INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE characters ADD COLUMN bid INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := db.Exec(alter); err != nil &&
 			!strings.Contains(err.Error(), "duplicate column") {
@@ -397,7 +400,7 @@ func createToken(c *gin.Context, db *sql.DB) {
 func listCharacters(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`
 		SELECT c.id, c.name, c.last_name, c.realm, c.race, c.class, c.level, c.ilvl,
-		       c.spec, c.spec_icon, c.zone, c.played, c.detail, c.updated_at
+		       c.spec, c.spec_icon, c.bid, c.zone, c.played, c.detail, c.updated_at
 		FROM characters c
 		ORDER BY c.level DESC, c.name ASC`)
 	if err != nil {
@@ -411,7 +414,7 @@ func listCharacters(c *gin.Context, db *sql.DB) {
 		var ch Character
 		var updatedAt string
 		if err := rows.Scan(&ch.ID, &ch.Name, &ch.LastName, &ch.Realm, &ch.Race, &ch.Class,
-			&ch.Level, &ch.ILvl, &ch.Spec, &ch.SpecIcon, &ch.Zone, &ch.Played, &ch.Detail, &updatedAt); err != nil {
+			&ch.Level, &ch.ILvl, &ch.Spec, &ch.SpecIcon, &ch.Bid, &ch.Zone, &ch.Played, &ch.Detail, &updatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -501,6 +504,7 @@ type charIn struct {
 	Class    string  `json:"class"`
 	Level    int     `json:"level"`
 	ILvl     float64 `json:"ilvl"`
+	Bid      int64   `json:"bid"`
 }
 
 func upsertCharacter(c *gin.Context, db *sql.DB) {
@@ -519,14 +523,15 @@ func upsertCharacter(c *gin.Context, db *sql.DB) {
 
 func upsertChar(db *sql.DB, tokenID int64, in charIn) error {
 	_, err := db.Exec(`
-		INSERT INTO characters (token_id, name, last_name, realm, race, class, level, ilvl, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		INSERT INTO characters (token_id, name, last_name, realm, race, class, level, ilvl, bid, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT (name, realm) DO UPDATE SET
 			token_id = excluded.token_id, last_name = excluded.last_name,
 			race = excluded.race,
 			class = excluded.class, level = excluded.level, ilvl = excluded.ilvl,
+			bid = excluded.bid,
 			updated_at = datetime('now')`,
-		tokenID, in.Name, in.LastName, in.Realm, in.Race, in.Class, in.Level, in.ILvl)
+		tokenID, in.Name, in.LastName, in.Realm, in.Race, in.Class, in.Level, in.ILvl, in.Bid)
 	return err
 }
 
