@@ -1,4 +1,4 @@
--- MunkeHub v0.8.0 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.4 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -53,60 +53,77 @@ local GEAR_SLOTS = {
     [10] = "Hands", [15] = "Back", [16] = "MainHand", [17] = "OffHand",
 }
 
+-- WoW: Forever uses the modern API namespaces (C_Item, C_SpecializationInfo).
+-- The bare globals (GetItemInfoInstant, GetInventoryItemLevel, GetPlayedTime,
+-- GetInventoryItemQuality) DO NOT EXIST here — guarding on them silently
+-- produced empty icons/ilvl/spec/played for every character.
+local function GetSpecIndex()
+    if C_SpecializationInfo and C_SpecializationInfo.GetSpecialization then
+        return C_SpecializationInfo.GetSpecialization()
+    end
+    if GetSpecialization then return GetSpecialization() end
+    return nil
+end
+
+local function GetSpecName(idx)
+    if not idx then return "" end
+    if C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo then
+        local _, name = C_SpecializationInfo.GetSpecializationInfo(idx)
+        if name then return name end
+    end
+    if GetSpecializationInfo then
+        local _, name = GetSpecializationInfo(idx)
+        if name then return name end
+    end
+    return ""
+end
+
 local function BuildDetailJSON()
     local function esc(s)
         return (tostring(s):gsub('[\\"]', function(c) return "\\" .. c end))
     end
 
     -- specialization
-    local spec = ""
-    if GetSpecialization then
-        local idx = GetSpecialization()
-        if idx then
-            local _, name = GetSpecializationInfo(idx)
-            spec = name or ""
-        end
-    end
+    local spec = GetSpecName(GetSpecIndex())
 
     -- location
     local zone = GetZoneText() or ""
 
-    -- played time (seconds)
-    local played = 0
-    if GetPlayedTime then played = GetPlayedTime() or 0 end
+    -- played time (seconds) — async: RequestTimePlayed() fires TIME_PLAYED_MSG,
+    -- the handler stores it in MunkeHubDB.played and rebuilds detailJSON.
+    local played = tonumber(MunkeHubDB and MunkeHubDB.played) or 0
 
-    -- gear: slot, name, ilvl, quality
+    -- gear: slot, name, ilvl, quality, icon
     local gear = {}
     for slot, slotName in pairs(GEAR_SLOTS) do
         local link = GetInventoryItemLink("player", slot)
         if link then
             local name = link:match("|h%[(.-)%]|h") or ""
+            local itemID = tonumber(link:match("item:(%d+)")) or 0
+
             local ilvl = 0
-            if GetInventoryItemLevel then
-                ilvl = GetInventoryItemLevel("player", slot) or 0
+            if C_Item and C_Item.GetDetailedItemLevelInfo then
+                ilvl = C_Item.GetDetailedItemLevelInfo(link) or 0
             end
+
             local q = 0
-            if GetInventoryItemQuality then
-                q = GetInventoryItemQuality("player", slot) or 0
+            if C_Item and C_Item.GetItemQualityByID then
+                q = C_Item.GetItemQualityByID(itemID) or 0
             end
+
             -- icon texture name (e.g. inv_sword_01) for the website.
-            -- GetItemInfoInstant is SYNCHRONOUS; GetItemInfo returns nil on
-            -- first call (async item cache) and would leave icons empty.
-            -- Return layout of GetItemInfoInstant:
-            --   1=itemID 2=itemLink 3=itemName 4=itemEquipLoc 5=icon
-            --   6=itemClassID 7=itemSubClassID 8=bindType
-            -- (icon is NOT at position 10 — that is GetItemInfo's layout)
+            -- C_Item.GetItemInfoInstant is SYNCHRONOUS (GetItemInfo is async).
+            -- Return layout: 1=itemID 2=itemLink 3=itemName 4=itemEquipLoc
+            --                5=icon 6=itemClassID 7=itemSubClassID 8=bindType
             local icon = ""
             local texture
-            if GetItemInfoInstant then
+            if C_Item and C_Item.GetItemInfoInstant then
+                texture = select(5, C_Item.GetItemInfoInstant(link))
+            elseif GetItemInfoInstant then
                 texture = select(5, GetItemInfoInstant(link))
-            elseif GetItemInfo then
-                local t
-                _, _, _, _, _, _, _, _, _, t = GetItemInfo(link)
-                texture = t
             end
             if texture then
-                icon = texture:match("([^\\]+)$") or ""
+                icon = tostring(texture):match("([^\\]+)$") or ""
                 icon = icon:gsub("%..*$", "")
             end
             gear[#gear + 1] = string.format(
@@ -125,6 +142,7 @@ end
 local function SyncStats()
     MunkeHubDB.syncJSON = BuildSyncJSON()
     MunkeHubDB.detailJSON = BuildDetailJSON()
+    if RequestTimePlayed then RequestTimePlayed() end -- fills played via TIME_PLAYED_MSG
     Print("stats saved — the helper uploads them (or /reload to flush now).")
 end
 
@@ -180,10 +198,21 @@ local tickerStarted = false
 core:RegisterEvent("ADDON_LOADED")
 core:RegisterEvent("PLAYER_ENTERING_WORLD")
 core:RegisterEvent("CHAT_MSG_ADDON")
+core:RegisterEvent("TIME_PLAYED_MSG")
 core:SetScript("OnEvent", function(self, event, ...)
     if event == "CHAT_MSG_ADDON" then
         local prefix, message = ...
         ReceiveRelay(prefix, message)
+        return
+    end
+
+    if event == "TIME_PLAYED_MSG" then
+        -- async played time: (totalSeconds, levelSeconds) — store + rebuild
+        local total = ...
+        if MunkeHubDB and type(total) == "number" then
+            MunkeHubDB.played = math.floor(total)
+            MunkeHubDB.detailJSON = BuildDetailJSON()
+        end
         return
     end
 
@@ -193,6 +222,8 @@ core:SetScript("OnEvent", function(self, event, ...)
             MunkeHubDB.syncJSON = BuildSyncJSON()
             MunkeHubDB.detailJSON = BuildDetailJSON()
         end
+        -- played time is async: ask for it, TIME_PLAYED_MSG fills it in
+        if RequestTimePlayed then RequestTimePlayed() end
         -- announce ourselves to the guild shortly after loading, then periodically
         C_Timer.After(5, BroadcastStats)
         if not tickerStarted then

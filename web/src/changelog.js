@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.4",
+    date: "2026-11-18",
+    entries: [
+      "Fixed item icons, item levels, spec and played time — the add-on now uses the correct game APIs.",
+    ],
+  },
+  {
     version: "0.8.3",
     date: "2026-11-18",
     entries: [
