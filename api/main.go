@@ -23,7 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.5"
+const version = "0.8.6"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -428,7 +428,8 @@ func upsertDetail(c *gin.Context, db *sql.DB) {
 			Name string `json:"name"`
 			ILvl int    `json:"ilvl"`
 			Q    int    `json:"q"`
-			Icon string `json:"icon"`
+			Icon string `json:"icon"` // legacy texture name (pre-0.8.5)
+			ID   int    `json:"id"`   // itemID — the website resolves icons from this
 		} `json:"gear"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
