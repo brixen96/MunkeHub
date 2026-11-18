@@ -87,10 +87,13 @@
                 <tr class="clickable" @click="toggleRow(c.id)">
                   <td data-label="Character">
                     <span class="chevron" :class="{ open: openRow === c.id }">▸</span>
-                    <span class="avatar" :class="classSlug(c.class)"
-                          v-html="classGlyph(c.class)"></span>
+                    <span class="avatar" :class="classSlug(c.class)">
+                      <img v-if="avatarSrc(c)" :src="avatarSrc(c)" alt=""
+                           loading="lazy" @error="$event.target.style.display = 'none'">
+                      <span v-else v-html="classGlyph(c.class)"></span>
+                    </span>
                     <span class="char-name" :class="classSlug(c.class)">
-                      {{ c.name }}
+                      {{ c.name }}<template v-if="c.last_name"> {{ c.last_name }}</template>
                     </span>
                     <span class="realm">{{ c.realm }}</span>
                   </td>
@@ -343,6 +346,20 @@ const CLASS_COLORS = {
   evoker: "#33937F",
 };
 
+// Class icon texture fileIDs (from the Forever client — served by
+// foreverdb.net through our icon endpoint). Used when no spec icon exists.
+const CLASS_ICON_FID = {
+  warrior: 626008,
+  paladin: 626003,
+  hunter: 626000,
+  rogue: 626005,
+  priest: 626004,
+  shaman: 626006,
+  mage: 626001,
+  warlock: 626007,
+  druid: 625999,
+};
+
 export default {
   name: "App",
   data() {
@@ -402,6 +419,13 @@ export default {
     },
     classSlug(cls) {
       return "c-" + (cls || "").toLowerCase().replace(/[^a-z]/g, "");
+    },
+    // Avatar: spec icon when available, else the class icon (fileIDs served
+    // by foreverdb.net through our icon endpoint), else the SVG glyph below.
+    avatarSrc(c) {
+      if (c.spec_icon) return "/api/v1/icon/" + c.spec_icon;
+      const fid = CLASS_ICON_FID[(c.class || "").toLowerCase()];
+      return fid ? "/api/v1/icon/" + fid : "";
     },
     // Original simple SVG glyphs per class (drawn for MunkeHub — no game assets)
     classGlyph(cls) {

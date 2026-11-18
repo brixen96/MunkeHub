@@ -1,4 +1,4 @@
--- MunkeHub v0.8.8 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.9 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -25,8 +25,21 @@ end
 -- Stats collection — stored in SavedVariables, picked up by the helper exe
 -- (WoW addons cannot do HTTP, so the helper bridges file -> API)
 -- ---------------------------------------------------------------------------
+-- WoW: Forever has first + last names. UnitNameUnmodified returns them as
+-- two values when surnames are separate (see LibLatency/LibDurability).
+-- `name` stays the row key (first name only) so UNIQUE(name, realm) never
+-- changes — last_name is display-only.
+local function LastName()
+    if UnitNameUnmodified then
+        local _, last = UnitNameUnmodified("player")
+        if type(last) == "string" and last ~= "" then return last end
+    end
+    return ""
+end
+
 local function BuildSyncJSON()
     local name = UnitName("player") or ""
+    local lastName = LastName()
     local realm = GetRealmName() or ""
     local race = UnitRace("player") or ""
     local class = select(2, UnitClass("player")) or ""
@@ -41,8 +54,8 @@ local function BuildSyncJSON()
         return (tostring(s):gsub('[\\"]', function(c) return "\\" .. c end))
     end
     return string.format(
-        '{"name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s}',
-        esc(name), esc(realm), esc(race), esc(class), level, tostring(ilvl))
+        '{"name":"%s","last_name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s}',
+        esc(name), esc(lastName), esc(realm), esc(race), esc(class), level, tostring(ilvl))
 end
 
 -- Deep detail for the expandable roster rows. NEVER relayed (240-byte cap) —
@@ -78,13 +91,29 @@ local function GetSpecName(idx)
     return ""
 end
 
+-- Spec icon as a texture FILEID (4th return) — foreverdb serves it.
+local function GetSpecIcon(idx)
+    if not idx then return 0 end
+    local fn
+    if C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo then
+        fn = C_SpecializationInfo.GetSpecializationInfo
+    elseif GetSpecializationInfo then
+        fn = GetSpecializationInfo
+    end
+    if not fn then return 0 end
+    local _, _, _, icon = fn(idx)
+    return tonumber(icon) or 0
+end
+
 local function BuildDetailJSON()
     local function esc(s)
         return (tostring(s):gsub('[\\"]', function(c) return "\\" .. c end))
     end
 
-    -- specialization
-    local spec = GetSpecName(GetSpecIndex())
+    -- specialization (+ its icon fileID for the website avatar)
+    local specIdx = GetSpecIndex()
+    local spec = GetSpecName(specIdx)
+    local specIcon = GetSpecIcon(specIdx)
 
     -- location
     local zone = GetZoneText() or ""
@@ -134,8 +163,8 @@ local function BuildDetailJSON()
     local name = UnitName("player") or ""
     local realm = GetRealmName() or ""
     return string.format(
-        '{"name":"%s","realm":"%s","spec":"%s","zone":"%s","played":%d,"gear":[%s]}',
-        esc(name), esc(realm), esc(spec), esc(zone), played, table.concat(gear, ","))
+        '{"name":"%s","realm":"%s","spec":"%s","spec_icon":%d,"zone":"%s","played":%d,"gear":[%s]}',
+        esc(name), esc(realm), esc(spec), specIcon, esc(zone), played, table.concat(gear, ","))
 end
 
 local function SyncStats()

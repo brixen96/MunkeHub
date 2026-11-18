@@ -2,6 +2,14 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.9",
+    date: "2026-11-18",
+    entries: [
+      "Characters now show first and last name (WoW: Forever surnames).",
+      "New avatars: specialization icon, falling back to class icon.",
+    ],
+  },
+  {
     version: "0.8.8",
     date: "2026-11-18",
     entries: [

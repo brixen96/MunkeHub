@@ -23,7 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.8"
+const version = "0.8.9"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -38,13 +38,15 @@ type Announcement struct {
 
 type Character struct {
 	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
+	Name      string    `json:"name"`      // first name — also the row key
+	LastName  string    `json:"last_name"`  // Forever surname (display only)
 	Realm     string    `json:"realm"`
 	Race      string    `json:"race"`
 	Class     string    `json:"class"`
 	Level     int       `json:"level"`
 	ILvl      float64   `json:"ilvl"`
 	Spec      string    `json:"spec"`
+	SpecIcon  int       `json:"spec_icon"` // spec icon texture fileID
 	Zone      string    `json:"zone"`
 	Played    int       `json:"played"` // seconds
 	Detail    string    `json:"detail"` // gear JSON array (empty if not synced)
@@ -142,12 +144,14 @@ func migrate(db *sql.DB) error {
 			id         INTEGER PRIMARY KEY AUTOINCREMENT,
 			token_id   INTEGER NOT NULL REFERENCES tokens(id) ON DELETE CASCADE,
 			name       TEXT NOT NULL,
+			last_name  TEXT NOT NULL DEFAULT '',
 			realm      TEXT NOT NULL DEFAULT '',
 			race       TEXT NOT NULL DEFAULT '',
 			class      TEXT NOT NULL DEFAULT '',
 			level      INTEGER NOT NULL DEFAULT 0,
 			ilvl       REAL NOT NULL DEFAULT 0,
 			spec       TEXT NOT NULL DEFAULT '',
+			spec_icon  INTEGER NOT NULL DEFAULT 0,
 			zone       TEXT NOT NULL DEFAULT '',
 			played     INTEGER NOT NULL DEFAULT 0,
 			detail     TEXT NOT NULL DEFAULT '',
@@ -165,6 +169,8 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE characters ADD COLUMN zone TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE characters ADD COLUMN played INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE characters ADD COLUMN detail TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE characters ADD COLUMN last_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE characters ADD COLUMN spec_icon INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := db.Exec(alter); err != nil &&
 			!strings.Contains(err.Error(), "duplicate column") {
@@ -390,8 +396,8 @@ func createToken(c *gin.Context, db *sql.DB) {
 
 func listCharacters(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`
-		SELECT c.id, c.name, c.realm, c.race, c.class, c.level, c.ilvl,
-		       c.spec, c.zone, c.played, c.detail, c.updated_at
+		SELECT c.id, c.name, c.last_name, c.realm, c.race, c.class, c.level, c.ilvl,
+		       c.spec, c.spec_icon, c.zone, c.played, c.detail, c.updated_at
 		FROM characters c
 		ORDER BY c.level DESC, c.name ASC`)
 	if err != nil {
@@ -404,8 +410,8 @@ func listCharacters(c *gin.Context, db *sql.DB) {
 	for rows.Next() {
 		var ch Character
 		var updatedAt string
-		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Realm, &ch.Race, &ch.Class,
-			&ch.Level, &ch.ILvl, &ch.Spec, &ch.Zone, &ch.Played, &ch.Detail, &updatedAt); err != nil {
+		if err := rows.Scan(&ch.ID, &ch.Name, &ch.LastName, &ch.Realm, &ch.Race, &ch.Class,
+			&ch.Level, &ch.ILvl, &ch.Spec, &ch.SpecIcon, &ch.Zone, &ch.Played, &ch.Detail, &updatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -418,11 +424,12 @@ func listCharacters(c *gin.Context, db *sql.DB) {
 // upsertDetail stores spec/zone/gear detail for the caller's own character.
 func upsertDetail(c *gin.Context, db *sql.DB) {
 	var in struct {
-		Name   string `json:"name" binding:"required"`
-		Realm  string `json:"realm"`
-		Spec   string `json:"spec"`
-		Zone   string `json:"zone"`
-		Played int    `json:"played"`
+		Name      string `json:"name" binding:"required"`
+		Realm     string `json:"realm"`
+		Spec      string `json:"spec"`
+		SpecIcon  int    `json:"spec_icon"`
+		Zone      string `json:"zone"`
+		Played    int    `json:"played"`
 		Gear   []struct {
 			Slot string `json:"slot"`
 			Name string `json:"name"`
@@ -440,9 +447,9 @@ func upsertDetail(c *gin.Context, db *sql.DB) {
 	gearJSON, _ := json.Marshal(in.Gear)
 	tokenID := c.GetInt64("tokenID")
 	_, err := db.Exec(`
-		UPDATE characters SET spec = ?, zone = ?, played = ?, detail = ?, updated_at = datetime('now')
+		UPDATE characters SET spec = ?, spec_icon = ?, zone = ?, played = ?, detail = ?, updated_at = datetime('now')
 		WHERE name = ? AND realm = ?`,
-		in.Spec, in.Zone, in.Played, string(gearJSON), in.Name, in.Realm)
+		in.Spec, in.SpecIcon, in.Zone, in.Played, string(gearJSON), in.Name, in.Realm)
 	_ = tokenID
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -487,12 +494,13 @@ func guildStats(c *gin.Context, db *sql.DB) {
 }
 
 type charIn struct {
-	Name  string  `json:"name" binding:"required"`
-	Realm string  `json:"realm"`
-	Race  string  `json:"race"`
-	Class string  `json:"class"`
-	Level int     `json:"level"`
-	ILvl  float64 `json:"ilvl"`
+	Name     string  `json:"name" binding:"required"`
+	LastName string  `json:"last_name"`
+	Realm    string  `json:"realm"`
+	Race     string  `json:"race"`
+	Class    string  `json:"class"`
+	Level    int     `json:"level"`
+	ILvl     float64 `json:"ilvl"`
 }
 
 func upsertCharacter(c *gin.Context, db *sql.DB) {
@@ -511,13 +519,14 @@ func upsertCharacter(c *gin.Context, db *sql.DB) {
 
 func upsertChar(db *sql.DB, tokenID int64, in charIn) error {
 	_, err := db.Exec(`
-		INSERT INTO characters (token_id, name, realm, race, class, level, ilvl, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		INSERT INTO characters (token_id, name, last_name, realm, race, class, level, ilvl, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT (name, realm) DO UPDATE SET
-			token_id = excluded.token_id, race = excluded.race,
+			token_id = excluded.token_id, last_name = excluded.last_name,
+			race = excluded.race,
 			class = excluded.class, level = excluded.level, ilvl = excluded.ilvl,
 			updated_at = datetime('now')`,
-		tokenID, in.Name, in.Realm, in.Race, in.Class, in.Level, in.ILvl)
+		tokenID, in.Name, in.LastName, in.Realm, in.Race, in.Class, in.Level, in.ILvl)
 	return err
 }
 
