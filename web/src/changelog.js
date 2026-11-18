@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.7",
+    date: "2026-11-18",
+    entries: [
+      "All gear icons now show — including WoW: Forever custom items.",
+    ],
+  },
+  {
     version: "0.8.6",
     date: "2026-11-18",
     entries: [

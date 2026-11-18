@@ -23,7 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.6"
+const version = "0.8.7"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -429,7 +429,8 @@ func upsertDetail(c *gin.Context, db *sql.DB) {
 			ILvl int    `json:"ilvl"`
 			Q    int    `json:"q"`
 			Icon string `json:"icon"` // legacy texture name (pre-0.8.5)
-			ID   int    `json:"id"`   // itemID — the website resolves icons from this
+			ID   int    `json:"id"`   // itemID — wowhead fallback source
+			Fid  int    `json:"fid"`  // texture fileID — primary icon source (foreverdb)
 		} `json:"gear"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -574,6 +575,28 @@ func fetchZamIcon(name string) ([]byte, int) {
 	return data, 0
 }
 
+// fetchForeverIcon downloads an icon by the game's texture FILEID from
+// foreverdb.net (datamined from the WoW: Forever client, so it covers
+// custom items wowhead has never heard of). Returns webp bytes.
+func fetchForeverIcon(fileID string) ([]byte, int) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("GET", "https://foreverdb.net/icons/"+fileID+".webp", nil)
+	if err != nil {
+		return nil, http.StatusBadGateway
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (MunkeHub)")
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, http.StatusBadGateway
+	}
+	defer res.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(res.Body, 512*1024))
+	if res.StatusCode != http.StatusOK || len(data) == 0 {
+		return nil, http.StatusNotFound
+	}
+	return data, 0
+}
+
 // resolveItemIcon maps an itemID to its texture name via wowhead's public
 // tooltip API. The game client only gives us numbers, so this is the bridge.
 func resolveItemIcon(itemID string) (string, error) {
@@ -599,15 +622,30 @@ func resolveItemIcon(itemID string) (string, error) {
 	return string(m[1]), nil
 }
 
-// serveIcon returns a WoW item icon. Accepts either a texture name
-// (inv_sword_01) or a numeric itemID (resolved via wowhead, then fetched
-// from zamimg). Everything is cached under MUNKEHUB_ICONS forever.
+// serveIcon returns a WoW item icon. Numeric params are tried as a texture
+// FILEID against foreverdb.net first (datamined from the Forever client —
+// covers custom items), then as an itemID via wowhead + zamimg. Texture
+// names (inv_sword_01) go straight to zamimg. Everything caches forever.
 func serveIcon(c *gin.Context) {
 	name := strings.ToLower(c.Param("name"))
 	dir := envOr("MUNKEHUB_ICONS", "icons")
 
 	if itemIDRe.MatchString(name) {
-		// itemID path: cache the resolved image as item_<id>.jpg
+		// 1. fileID path (primary): foreverdb.net/icons/<fileID>.webp
+		fidCache := filepath.Join(dir, "fid_"+name+".webp")
+		if _, err := os.Stat(fidCache); err == nil {
+			c.File(fidCache)
+			return
+		}
+		if data, fail := fetchForeverIcon(name); fail == 0 {
+			if err := os.MkdirAll(dir, 0755); err == nil {
+				_ = os.WriteFile(fidCache, data, 0644)
+			}
+			c.Data(http.StatusOK, "image/webp", data)
+			return
+		}
+
+		// 2. itemID fallback: wowhead resolves the name, zamimg serves it
 		cached := filepath.Join(dir, "item_"+name+".jpg")
 		if _, err := os.Stat(cached); err == nil {
 			c.File(cached)
