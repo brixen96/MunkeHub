@@ -1,4 +1,4 @@
--- MunkeHub v0.8.7 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.8 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -114,11 +114,16 @@ local function BuildDetailJSON()
             -- The game only exposes icon FILEIDS (numbers like 134592),
             -- never texture names. foreverdb.net serves icons keyed by that
             -- same fileID, so we send it; itemID stays as a fallback source.
+            -- NOTE: select(5, ...) returns ALL remaining values, and
+            -- tonumber(v, base) would take classID as the base -> nil.
+            -- Truncate to one value first (local assignment or extra parens).
             local fid = 0
             if C_Item and C_Item.GetItemInfoInstant then
-                fid = tonumber(select(5, C_Item.GetItemInfoInstant(link))) or 0
+                local t = select(5, C_Item.GetItemInfoInstant(link))
+                fid = tonumber(t) or 0
             elseif GetItemInfoInstant then
-                fid = tonumber(select(5, GetItemInfoInstant(link))) or 0
+                local t = select(5, GetItemInfoInstant(link))
+                fid = tonumber(t) or 0
             end
             gear[#gear + 1] = string.format(
                 '{"slot":"%s","name":"%s","ilvl":%d,"q":%d,"id":%d,"fid":%d}',

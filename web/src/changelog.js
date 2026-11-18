@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.8",
+    date: "2026-11-18",
+    entries: [
+      "Fixed the file-ID extraction bug that left gear icons blank.",
+    ],
+  },
+  {
     version: "0.8.7",
     date: "2026-11-18",
     entries: [
