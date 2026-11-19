@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.16",
+    date: "2026-11-19",
+    entries: [
+      "Guides tab now covers all professions: Alchemy, Blacksmithing, Enchanting, Engineering, Leatherworking, Tailoring, Mining, Herbalism, Skinning, First Aid and Fishing.",
+    ],
+  },
+  {
     version: "0.8.15",
     date: "2026-11-19",
     entries: [

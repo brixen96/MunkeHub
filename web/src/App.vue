@@ -261,61 +261,86 @@
               </div>
             </div>
 
-            <!-- ranks -->
-            <h4 class="guide-h4">Training & Ranks</h4>
-            <table class="guide-table">
-              <thead>
-                <tr><th>Rank</th><th>Skill range</th><th>Skill needed</th><th>Level</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="r in g.ranks" :key="r.rank">
-                  <td>{{ r.rank }}</td><td>{{ r.range }}</td>
-                  <td>{{ r.skill }}</td><td>{{ r.level }}</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <!-- shopping list -->
-            <h4 class="guide-h4">Shopping List</h4>
-            <div class="shop-grid">
-              <div v-for="s in g.shopping" :key="s.range" class="shop-card">
-                <span class="shop-range">{{ s.range }}</span>
-                <ul class="shop-list">
-                  <li v-for="it in s.items" :key="it.id">
-                    <b>{{ it.qty }}×</b>
-                    <a :href="wowheadItem(it.id)" data-wowhead="" target="_blank" rel="noopener">{{ it.name }}</a>
-                  </li>
-                </ul>
-              </div>
-            </div>
-
-            <!-- leveling steps -->
-            <h4 class="guide-h4">Leveling Route</h4>
-            <div v-for="st in g.steps" :key="st.range" class="step">
-              <div class="step-head">{{ st.range }}</div>
-              <p v-if="st.note" class="step-note">{{ st.note }}</p>
+            <!-- ranks (only some guides have them) -->
+            <template v-if="g.ranks && g.ranks.length">
+              <h4 class="guide-h4">Training & Ranks</h4>
               <table class="guide-table">
                 <thead>
-                  <tr><th>Skill</th><th>Qty</th><th>Craft</th><th>Reagents</th></tr>
+                  <tr><th>Rank</th><th>Skill range</th><th>Skill needed</th><th>Level</th></tr>
                 </thead>
                 <tbody>
-                  <tr v-for="row in st.rows" :key="row.skill">
-                    <td class="nowrap">{{ row.skill }}</td>
-                    <td class="nowrap">{{ row.qty }}</td>
-                    <td>
-                      <a :href="wowheadItem(row.craft.id)" data-wowhead="" target="_blank" rel="noopener">{{ row.craft.name }}</a>
-                    </td>
-                    <td>
-                      <span v-for="(rg, i) in row.reagents" :key="rg.id">
-                        <span v-if="i"> · </span>
-                        <b>{{ rg.qty }}×</b>
-                        <a :href="wowheadItem(rg.id)" data-wowhead="" target="_blank" rel="noopener">{{ rg.name }}</a>
-                      </span>
-                    </td>
+                  <tr v-for="r in g.ranks" :key="r.rank">
+                    <td>{{ r.rank }}</td><td>{{ r.range }}</td>
+                    <td>{{ r.skill }}</td><td>{{ r.level }}</td>
                   </tr>
                 </tbody>
               </table>
-            </div>
+            </template>
+
+            <!-- shopping list -->
+            <template v-if="g.shopping && g.shopping.length">
+              <h4 class="guide-h4">Shopping List</h4>
+              <div class="shop-grid">
+                <div v-for="s in g.shopping" :key="s.range" class="shop-card">
+                  <span class="shop-range">{{ s.range }}</span>
+                  <ul class="shop-list">
+                    <li v-for="(it, i) in s.items" :key="i">
+                      <b>{{ it.qty }}×</b>
+                      <a v-if="it.id" :href="wowheadItem(it.id)" data-wowhead="" target="_blank" rel="noopener">{{ it.name }}</a>
+                      <span v-else>{{ it.name }}</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </template>
+
+            <!-- leveling steps (crafting professions) -->
+            <template v-if="g.steps && g.steps.length">
+              <h4 class="guide-h4">Leveling Route</h4>
+              <div v-for="st in g.steps" :key="st.range" class="step">
+                <div class="step-head">{{ st.range }}</div>
+                <p v-if="st.note" class="step-note">{{ st.note }}</p>
+                <table class="guide-table">
+                  <thead>
+                    <tr><th>Skill</th><th>Qty</th><th>Craft</th><th>Reagents</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, ri) in st.rows" :key="ri">
+                      <td class="nowrap">{{ row.skill }}</td>
+                      <td class="nowrap">{{ row.qty }}</td>
+                      <td>
+                        <a v-if="row.craft.id" :href="wowheadLink(row.craft)" data-wowhead="" target="_blank" rel="noopener">{{ row.craft.name }}</a>
+                        <span v-else>{{ row.craft.name }}</span>
+                      </td>
+                      <td>
+                        <span v-for="(rg, i) in row.reagents" :key="i">
+                          <span v-if="i"> · </span>
+                          <b v-if="rg.qty">{{ rg.qty }}×</b>
+                          <a v-if="rg.id" :href="wowheadItem(rg.id)" data-wowhead="" target="_blank" rel="noopener">{{ rg.name }}</a>
+                          <span v-else>{{ rg.name }}</span>
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+
+            <!-- gathering route (mining/herbalism/skinning/fishing) -->
+            <template v-if="g.gathering && g.gathering.length">
+              <h4 class="guide-h4">Leveling Route</h4>
+              <div v-for="st in g.gathering" :key="st.range" class="step">
+                <div class="step-head">{{ st.range }}</div>
+                <p v-if="st.note" class="step-note">{{ st.note }}</p>
+                <table v-if="st.zones && st.zones.length" class="guide-table">
+                  <tbody>
+                    <tr v-for="(z, zi) in st.zones" :key="zi">
+                      <td v-for="(cell, ci) in z" :key="ci" :class="{ nowrap: ci === 0 }">{{ cell }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
 
             <!-- notable items -->
             <template v-if="g.items && g.items.length">
@@ -328,54 +353,74 @@
               </ul>
             </template>
 
-            <!-- trainers -->
-            <h4 class="guide-h4">Trainers</h4>
-            <div class="trainer-cols">
-              <div>
-                <h5 class="trainer-h5">Alliance — Apprentice / Journeyman</h5>
-                <table class="guide-table">
+            <!-- trainers: generic sections (new shape) -->
+            <template v-if="g.trainers && g.trainers.sections">
+              <h4 class="guide-h4">Trainers</h4>
+              <div v-for="(sec, si) in g.trainers.sections" :key="si" class="trainer-sec">
+                <h5 v-if="sec.title" class="trainer-h5">{{ sec.title }}</h5>
+                <p v-for="(n, ni) in sec.notes" :key="'n' + ni" class="step-note">{{ n }}</p>
+                <ul v-if="sec.lines.length" class="trainer-lines">
+                  <li v-for="(l, li) in sec.lines" :key="li">{{ l }}</li>
+                </ul>
+                <table v-if="sec.rows.length" class="guide-table">
                   <tbody>
-                    <tr v-for="t in g.trainers.alliance.basic" :key="t.name">
-                      <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <h5 class="trainer-h5">Alliance — Expert (book vendor)</h5>
-                <table class="guide-table">
-                  <tbody>
-                    <tr v-for="t in g.trainers.alliance.expert" :key="t.name">
-                      <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                    <tr v-for="(r, ri) in sec.rows" :key="ri">
+                      <td v-for="(cell, ci) in r" :key="ci" :class="{ nowrap: ci === 0 }">{{ cell }}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <div>
-                <h5 class="trainer-h5">Horde — Apprentice / Journeyman</h5>
-                <table class="guide-table">
-                  <tbody>
-                    <tr v-for="t in g.trainers.horde.basic" :key="t.name">
-                      <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <h5 class="trainer-h5">Horde — Expert (book vendor)</h5>
-                <table class="guide-table">
-                  <tbody>
-                    <tr v-for="t in g.trainers.horde.expert" :key="t.name">
-                      <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+            </template>
+            <!-- trainers: old shape (cooking) -->
+            <template v-else-if="g.trainers">
+              <h4 class="guide-h4">Trainers</h4>
+              <div class="trainer-cols">
+                <div>
+                  <h5 class="trainer-h5">Alliance — Apprentice / Journeyman</h5>
+                  <table class="guide-table">
+                    <tbody>
+                      <tr v-for="t in g.trainers.alliance.basic" :key="t.name">
+                        <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <h5 class="trainer-h5">Alliance — Expert (book vendor)</h5>
+                  <table class="guide-table">
+                    <tbody>
+                      <tr v-for="t in g.trainers.alliance.expert" :key="t.name">
+                        <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <h5 class="trainer-h5">Horde — Apprentice / Journeyman</h5>
+                  <table class="guide-table">
+                    <tbody>
+                      <tr v-for="t in g.trainers.horde.basic" :key="t.name">
+                        <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <h5 class="trainer-h5">Horde — Expert (book vendor)</h5>
+                  <table class="guide-table">
+                    <tbody>
+                      <tr v-for="t in g.trainers.horde.expert" :key="t.name">
+                        <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-            <h5 class="trainer-h5">Artisan (quest — both factions)</h5>
-            <table class="guide-table">
-              <tbody>
-                <tr v-for="t in g.trainers.artisan" :key="t.name">
-                  <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
-                </tr>
-              </tbody>
-            </table>
+              <h5 class="trainer-h5">Artisan (quest — both factions)</h5>
+              <table class="guide-table">
+                <tbody>
+                  <tr v-for="t in g.trainers.artisan" :key="t.name">
+                    <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
           </div>
         </div>
       </section>
@@ -562,6 +607,7 @@
 import { api, WEB_VERSION } from "./api";
 import { CHANGELOG } from "./changelog";
 import { GUIDES } from "./guides";
+import { GUIDES_EXTRA } from "./guides-extra";
 
 // WoW class colours — iconic, instantly readable for players
 const CLASS_COLORS = {
@@ -627,7 +673,7 @@ export default {
       webVersion: WEB_VERSION,
       apiVersion: "",
       changelog: CHANGELOG,
-      guides: GUIDES,
+      guides: [...GUIDES, ...GUIDES_EXTRA],
       guildError: false,
       announcements: null,
       annError: false,
@@ -750,6 +796,10 @@ export default {
     },
     wowheadItem(id) {
       return "https://www.wowhead.com/forever/item=" + id;
+    },
+    // craft links: spells (recipes) vs items depending on link kind
+    wowheadLink(c) {
+      return "https://www.wowhead.com/forever/" + (c.k === "item" ? "item=" : "spell=") + c.id;
     },
     // --- talents tab -------------------------------------------------------
     setSheetTab(c, t) {
@@ -1855,6 +1905,21 @@ main {
 }
 .trainer-cols .trainer-h5:first-child {
   margin-top: 0;
+}
+/* generic trainer sections (new guide shape) */
+.trainer-sec {
+  margin-bottom: 0.9rem;
+}
+.trainer-sec .trainer-h5 {
+  margin-top: 0;
+}
+.trainer-lines {
+  margin: 0.2rem 0 0.4rem;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+}
+.trainer-lines li {
+  margin-bottom: 0.2rem;
 }
 
 /* rank badge: bottom-right, overlapping the icon */
