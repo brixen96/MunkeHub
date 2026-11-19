@@ -274,6 +274,9 @@ func (p *ahPoller) poll() {
 	// (async — an AI hiccup must never block the poll loop).
 	maybeRefreshAdvice(p.db)
 
+	// weekly AI digest: posts a "week in review" announcement on Sundays
+	maybeRefreshDigest(p.db)
+
 	ah.mu.Lock()
 	ah.lastPoll = time.Now()
 	ah.lastOK, ah.lastFail = ok, fail

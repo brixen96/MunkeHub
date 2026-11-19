@@ -1,4 +1,4 @@
--- MunkeHub v0.8.23 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.25 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -49,13 +49,13 @@ local function BlizzardID()
     return tonumber(hex, 16) or 0
 end
 
--- Professions: primary 2 + cooking + fishing, comma-separated names.
+-- Professions: primary 2 + cooking + fishing.
 -- GetProfessions() -> prof1, prof2, archaeology, fishing, cooking;
 -- GetProfessionInfo(index) -> name, icon, skillLevel, ... (verified in
 -- RSProfessionDB.lua / QuestieTrace — bare globals exist in Forever).
 -- Feeds the guild profession list + the MunkeHub AI auction advisor.
-local function BuildProfessions()
-    if not GetProfessions then return "" end
+local function ProfessionList()
+    if not GetProfessions then return {} end
     local p1, p2, _, fishing, cooking = GetProfessions()
     -- NOTE: build the index list manually — ipairs() stops at the first nil,
     -- so a table constructor with holes would drop later professions.
@@ -67,13 +67,31 @@ local function BuildProfessions()
     local out = {}
     for _, idx in ipairs(idxs) do
         if GetProfessionInfo then
-            local name = GetProfessionInfo(idx)
+            local name, _, skill = GetProfessionInfo(idx)
             if type(name) == "string" and name ~= "" then
-                out[#out + 1] = name
+                out[#out + 1] = { name = name, level = tonumber(skill) or 0 }
             end
         end
     end
-    return table.concat(out, ",")
+    return out
+end
+
+local function BuildProfessions()
+    local names = {}
+    for _, p in ipairs(ProfessionList()) do
+        names[#names + 1] = p.name
+    end
+    return table.concat(names, ",")
+end
+
+-- "Tailoring:225,Enchanting:5" — skill levels for the Guides tab
+-- ("you're at 127/300, remaining cost: ~41g").
+local function BuildProfLevels()
+    local parts = {}
+    for _, p in ipairs(ProfessionList()) do
+        parts[#parts + 1] = p.name .. ":" .. p.level
+    end
+    return table.concat(parts, ",")
 end
 
 -- extras=true adds professions + gold (helper path always wants them).
@@ -99,9 +117,9 @@ local function BuildSyncJSON(extras)
     end
     if extras then
         return string.format(
-            '{"name":"%s","last_name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s,"bid":%d,"professions":"%s","gold":%d}',
+            '{"name":"%s","last_name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s,"bid":%d,"professions":"%s","prof_levels":"%s","gold":%d}',
             esc(name), esc(lastName), esc(realm), esc(race), esc(class), level, tostring(ilvl), bid,
-            esc(BuildProfessions()), gold)
+            esc(BuildProfessions()), esc(BuildProfLevels()), gold)
     end
     return string.format(
         '{"name":"%s","last_name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s,"bid":%d}',

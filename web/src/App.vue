@@ -32,6 +32,9 @@
         <button :class="{ active: tab === 'guides' }" @click="tab = 'guides'">
           Guides
         </button>
+        <button :class="{ active: tab === 'board' }" @click="tab = 'board'">
+          Guild Board
+        </button>
         <button :class="{ active: tab === 'ah' }" @click="tab = 'ah'">
           Auction House<span v-if="watchDealsCount" class="nav-badge">{{ watchDealsCount }}</span>
         </button>
@@ -57,6 +60,15 @@
           <div class="dash-card">
             <span class="dash-num">{{ stats.avg_ilvl }}</span>
             <span class="dash-label">Avg iLvl</span>
+          </div>
+          <div class="dash-card">
+            <span class="dash-num">{{ fmtMoney(stats.total_gold) }}</span>
+            <span class="dash-label">Guild gold</span>
+          </div>
+          <div class="dash-card">
+            <span class="dash-num">{{ mountPct }}%</span>
+            <span class="dash-label">Epic mount fund</span>
+            <div class="gp-bar mount-bar"><div class="gp-fill" :style="{ width: mountPct + '%' }"></div></div>
           </div>
           <div class="dash-card">
             <span class="dash-num">{{ stats.classes.length }}</span>
@@ -99,7 +111,8 @@
                       <span v-else v-html="classGlyph(c.class)"></span>
                     </span>
                     <span class="char-name" :class="classSlug(c.class)">
-                      {{ fullName(c) }}
+                      <span class="online-dot" :class="{ on: isOnline(c.name) }"
+                            :title="isOnline(c.name) ? 'In game now' : 'Offline'">●</span>{{ fullName(c) }}
                     </span>
                     <span class="realm">{{ c.realm }}</span>
                   </td>
@@ -293,6 +306,18 @@
                   </span>
                 </div>
 
+                <!-- your skill level (addon-synced) + remaining cost -->
+                <div v-if="guideSkill" class="skill-banner">
+                  <span class="sb-label">{{ guideSkill.name }} is at</span>
+                  <b class="sb-level">{{ guideSkill.level }}/300</b>
+                  <div class="gp-bar sb-bar">
+                    <div class="gp-fill" :style="{ width: Math.min(100, Math.round(guideSkill.level / 3)) + '%' }"></div>
+                  </div>
+                  <span v-if="buyCart && guideSkill.level < 300" class="sb-cost">
+                    to 300: ~{{ fmtMoney(buyCart.remaining) }}
+                  </span>
+                </div>
+
                 <!-- ranks (only some guides have them) -->
                 <details v-if="g.ranks && g.ranks.length" class="gsec" open>
                   <summary class="guide-h4">Training & Ranks</summary>
@@ -335,10 +360,40 @@
                             <span v-if="dealPct(it.id)" class="ah-dealbadge">−{{ dealPct(it.id) }}%</span>
                           </span>
                           <span v-if="haveFull(it)" class="shop-have" title="Already in our bags">✓ have</span>
+                          <button v-if="it.id" class="link-btn" :title="'Price details for ' + it.name"
+                                  @click.stop="openItem(it.id, it.name)">📈</button>
                         </li>
                       </ul>
                     </div>
                   </div>
+                </details>
+
+                <!-- buy list cart: aggregated, minus bags, copyable -->
+                <details v-if="buyCart && buyCart.rows.length" class="gsec" open>
+                  <summary class="guide-h4">Buy List <span class="hint">— what to actually buy</span></summary>
+                  <div class="cart-head">
+                    <span>Total: <b class="ah-gold">{{ fmtMoney(buyCart.total) }}</b>
+                      <span v-if="buyCart.missing" class="shop-miss">+{{ buyCart.missing }} unpriced</span>
+                    </span>
+                    <button class="chip" @click="copyCart">📋 Copy list</button>
+                  </div>
+                  <table class="guide-table">
+                    <thead>
+                      <tr><th>Item</th><th class="num">Need</th><th class="num">In bags</th><th class="num">Price</th><th class="num">Cost</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="r in buyCart.rows" :key="r.id">
+                        <td>
+                          <a :href="wowheadItem(r.id)" data-wowhead="" target="_blank" rel="noopener">{{ r.name }}</a>
+                          <button class="link-btn" @click.stop="openItem(r.id, r.name)">📈</button>
+                        </td>
+                        <td class="num nowrap">{{ r.need > 0 ? r.need : '—' }}</td>
+                        <td class="num nowrap" :class="{ 'shop-have-cell': r.have > 0 }">{{ r.have || '—' }}</td>
+                        <td class="num nowrap">{{ r.priced ? fmtMoney(r.price || 0) : '—' }}</td>
+                        <td class="num nowrap ah-gold">{{ r.need > 0 && r.priced ? fmtMoney(r.cost) : '—' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </details>
 
                 <!-- leveling steps (crafting professions) -->
@@ -592,6 +647,7 @@
                                 @click="toggleWatch(d.item_id)">★</button>
                         <img :src="d.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
                         <a :href="wowheadItem(d.item_id)" data-wowhead="" target="_blank" rel="noopener">{{ d.name }}</a>
+                        <button class="link-btn" title="Price details" @click.stop="openItem(d.item_id, d.name)">📈</button>
                       </td>
                       <td class="num nowrap">{{ fmtMoney(d.minimum_ask_copper) }}
                         <span v-if="d.suspicious" class="ah-warn" :title="d.note">⚠️</span></td>
@@ -680,6 +736,7 @@
                                 @click="toggleWatch(i.id)">★</button>
                         <img :src="i.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
                         <a :href="wowheadItem(i.id)" data-wowhead="" target="_blank" rel="noopener">{{ i.name }}</a>
+                        <button class="link-btn" title="Price details" @click.stop="openItem(i.id, i.name)">📈</button>
                         <span class="ah-sub">{{ i.class_name }}<template v-if="i.subclass"> · {{ i.subclass }}</template></span>
                       </td>
                       <td class="num">{{ fmtNum(i.units) }} <span class="muted">({{ fmtNum(i.listings) }})</span></td>
@@ -879,6 +936,7 @@
                       <td class="ah-item">
                         <img :src="w.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
                         <a :href="wowheadItem(w.item_id)" data-wowhead="" target="_blank" rel="noopener">{{ w.name }}</a>
+                        <button class="link-btn" title="Price details" @click.stop="openItem(w.item_id, w.name)">📈</button>
                         <span v-if="w.in_deals" class="ah-dealbadge">−{{ Math.round(w.discount * 100) }}%</span>
                       </td>
                       <td class="num nowrap">{{ fmtMoney(w.min_copper) }}
@@ -1007,6 +1065,97 @@
         </div>
       </section>
 
+      <!-- ================= GUILD BOARD ================= -->
+      <section v-show="tab === 'board'">
+        <div class="panel">
+          <h2 class="panel-title">Guild Board <span class="hint">— orders & events</span></h2>
+
+          <div class="board-top">
+            <div class="guide-chips">
+              <button class="chip" :class="{ active: boardTab === 'orders' }" @click="boardTab = 'orders'">
+                Crafting Orders<span v-if="board && board.orders.filter(o => o.status !== 'done').length">
+                  ({{ board.orders.filter(o => o.status !== 'done').length }})</span>
+              </button>
+              <button class="chip" :class="{ active: boardTab === 'events' }" @click="boardTab = 'events'">
+                Events<span v-if="board && board.events.length"> ({{ board.events.length }})</span>
+              </button>
+            </div>
+            <select v-model="rsvpName" class="ah-select" title="Your name (for RSVPs and claims)">
+              <option value="">Your name…</option>
+              <option v-for="c in characters" :key="c.id" :value="c.name">{{ fullName(c) }}</option>
+            </select>
+          </div>
+
+          <p v-if="boardError" class="error">{{ boardError }}</p>
+          <p v-else-if="!board" class="muted">Loading the board…</p>
+
+          <!-- crafting orders -->
+          <template v-else-if="boardTab === 'orders'">
+            <details class="post-box">
+              <summary>Post a crafting order</summary>
+              <form @submit.prevent="addOrder" class="board-form">
+                <input v-model="newOrder.item_name" type="text" placeholder="What do you need? (e.g. Thorium Bar)" required maxlength="80" />
+                <input v-model="newOrder.qty" type="number" min="1" max="10000" class="qty-input" title="Quantity" />
+                <input v-model="newOrder.wanted_by" type="text" placeholder="Needed by (optional, e.g. Sunday raid)" maxlength="60" />
+                <input v-model="newOrder.note" type="text" placeholder="Note (optional)" maxlength="120" />
+                <button type="submit">Post order</button>
+              </form>
+            </details>
+
+            <p v-if="!board.orders.length" class="muted">No orders yet — be the first to ask.</p>
+            <div v-for="o in board.orders" :key="o.id" class="board-card" :class="{ done: o.status === 'done' }">
+              <div class="bc-main">
+                <b>{{ o.qty }}× {{ o.item_name }}</b>
+                <span v-if="o.wanted_by" class="bc-when">needed by {{ o.wanted_by }}</span>
+                <span v-if="o.note" class="bc-note">{{ o.note }}</span>
+              </div>
+              <div class="bc-side">
+                <span v-if="o.status === 'claimed'" class="bc-claim">🔨 {{ o.claimed_by }} is on it</span>
+                <span v-else-if="o.status === 'done'" class="bc-done">✓ done</span>
+                <button v-if="o.status === 'open'" class="chip" @click="setOrderStatus(o, 'claimed')">I'll craft it</button>
+                <button v-if="o.status === 'claimed'" class="chip" @click="setOrderStatus(o, 'done')">Done</button>
+                <button v-if="o.status !== 'done'" class="chip" @click="setOrderStatus(o, 'open')">Unclaim</button>
+                <button class="star" title="Remove order" @click="removeOrder(o)">✕</button>
+              </div>
+            </div>
+          </template>
+
+          <!-- events -->
+          <template v-else>
+            <details class="post-box">
+              <summary>Create an event</summary>
+              <form @submit.prevent="addEvent" class="board-form">
+                <input v-model="newEvent.title" type="text" placeholder="Title (e.g. Zul'Gurub raid)" required maxlength="80" />
+                <input v-model="newEvent.when_text" type="text" placeholder="When (e.g. Saturday 20:00 server)" maxlength="80" />
+                <input v-model="newEvent.note" type="text" placeholder="Note (optional)" maxlength="160" />
+                <button type="submit">Create event</button>
+              </form>
+            </details>
+
+            <p v-if="!board.events.length" class="muted">No events yet — plan the first one.</p>
+            <div v-for="e in board.events" :key="e.id" class="board-card">
+              <div class="bc-main">
+                <b>{{ e.title }}</b>
+                <span v-if="e.when_text" class="bc-when">🗓 {{ e.when_text }}</span>
+                <span v-if="e.note" class="bc-note">{{ e.note }}</span>
+              </div>
+              <div class="bc-rsvp">
+                <button class="rsvp-btn" :class="{ on: myRsvp(e) === 'yes' }" @click="rsvp(e, 'yes')">
+                  ✓ Going {{ rsvpCount(e, 'yes') || '' }}
+                </button>
+                <button class="rsvp-btn maybe" :class="{ on: myRsvp(e) === 'maybe' }" @click="rsvp(e, 'maybe')">
+                  ? Maybe {{ rsvpCount(e, 'maybe') || '' }}
+                </button>
+                <button class="rsvp-btn no" :class="{ on: myRsvp(e) === 'no' }" @click="rsvp(e, 'no')">
+                  ✕ Can't {{ rsvpCount(e, 'no') || '' }}
+                </button>
+                <button class="star" title="Remove event" @click="removeEvent(e)">✕</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
       <!-- ================= SETUP GUIDE ================= -->
       <section v-show="tab === 'guide'">
         <div class="panel">
@@ -1123,6 +1272,44 @@
         </div>
       </section>
 
+      <!-- item detail popup: 7-day chart + price facts -->
+      <div v-if="itemPopup" class="popup-backdrop" @click.self="closeItem">
+        <div class="item-popup">
+          <div class="popup-head">
+            <h3>{{ itemPopup.name }}</h3>
+            <button class="star" title="Close" @click="closeItem">✕</button>
+          </div>
+          <p v-if="!itemPopup.price" class="muted">No price data for this item.</p>
+          <template v-else>
+            <div class="popup-stats">
+              <div class="popup-stat">
+                <span class="dash-num">{{ fmtMoney(itemPopup.price.min) }}</span>
+                <span class="dash-label">Cheapest now</span>
+              </div>
+              <div class="popup-stat">
+                <span class="dash-num">{{ fmtMoney(itemPopup.price.avg7 || 0) }}</span>
+                <span class="dash-label">7-day average</span>
+              </div>
+              <div class="popup-stat">
+                <span class="dash-num">{{ fmtNum(itemPopup.price.units) }}</span>
+                <span class="dash-label">Units for sale</span>
+              </div>
+              <div class="popup-stat">
+                <span class="dash-num">{{ fmtNum(itemPopup.price.sold24h) }}</span>
+                <span class="dash-label">Sold, 24 h</span>
+              </div>
+            </div>
+            <svg v-if="itemPopup.points.length > 1" class="popup-spark" viewBox="0 0 300 60" preserveAspectRatio="none">
+              <polyline :points="popupSpark(itemPopup.points)" />
+            </svg>
+            <p v-else class="muted small">Not enough history yet — the chart fills in as hourly snapshots accumulate.</p>
+            <p class="muted small">
+              <a :href="wowheadItem(itemPopup.id)" data-wowhead="" target="_blank" rel="noopener">View on Wowhead ↗</a>
+            </p>
+          </template>
+        </div>
+      </div>
+
       </main>
 
     <footer>
@@ -1221,6 +1408,19 @@ export default {
       guidePrices: null, // item_id -> {min, avg7, units, sold24h}
       guideBags: null, // item_id -> {n, chars} (merged guild bag scans)
       guideProgress: loadGuideProgress(), // guideId -> [tier ranges done]
+      // presence: name -> {online, last_seen} (helper heartbeats)
+      presence: {},
+      // Guild Board: crafting orders + events
+      board: null, // {orders: [], events: []}
+      boardTab: "orders",
+      boardError: "",
+      newOrder: { item_name: "", qty: 1, wanted_by: "", note: "" },
+      newEvent: { title: "", when_text: "", note: "" },
+      rsvpName: localStorage.getItem("munkehub_rsvp_name") || "",
+      // item detail popup (7-day chart + price facts)
+      itemPopup: null, // {id, name, price, points}
+      // buy list cart (aggregated shopping list minus bags)
+      cartOpen: false,
       // --- Auction House tab ---
       ahTab: "deals", // deals | sell | listings | crafting
       ahSummary: null,
@@ -1298,6 +1498,9 @@ export default {
     // Guides: merged bag scans ("we already have this") + default guide prices.
     this.loadGuideBags();
     this.loadGuideData();
+    // presence dots + Guild Board
+    this.loadPresence();
+    this.loadBoard();
     // Auction House: load the default section (deals) + overview + AI advice.
     this.loadAh();
     this.loadAdvice(false);
@@ -1385,6 +1588,75 @@ export default {
         });
       });
       return [...set].sort();
+    },
+    // Epic mount fund progress (guild gold vs goal, from /stats).
+    mountPct() {
+      if (!this.stats || !this.stats.mount_goal) return 0;
+      return Math.min(100, Math.round((this.stats.total_gold / this.stats.mount_goal) * 100));
+    },
+    // Names currently in game (helper heartbeats < 3 min old).
+    onlineSet() {
+      const s = new Set();
+      Object.entries(this.presence || {}).forEach(([name, p]) => {
+        if (p && p.online) s.add(name);
+      });
+      return s;
+    },
+    // Best skill level for the selected guide's profession (any character).
+    guideSkill() {
+      const g = this.guides.find((x) => x.id === this.guideSel);
+      if (!g) return null;
+      const want = g.name.toLowerCase();
+      let best = null;
+      (this.characters || []).forEach((c) => {
+        (c.prof_levels || "").split(",").forEach((pair) => {
+          const [pname, lvl] = pair.split(":");
+          if (!pname || !lvl) return;
+          if (pname.trim().toLowerCase() !== want) return;
+          const n = parseInt(lvl, 10) || 0;
+          if (!best || n > best.level) best = { name: c.name, level: n };
+        });
+      });
+      return best;
+    },
+    // Buy list cart: every shopping tier aggregated, minus what's in bags.
+    // `from` = only tiers starting at/after this skill (for "cost to 300").
+    buyCart() {
+      const g = this.guides.find((x) => x.id === this.guideSel);
+      if (!g || !g.shopping) return null;
+      const skill = this.guideSkill ? this.guideSkill.level : 0;
+      const agg = new Map(); // id -> {name, qty, id}
+      let remaining = 0;
+      g.shopping.forEach((s) => {
+        const start = parseInt(String(s.range).match(/\d+/)?.[0] || "0", 10);
+        const fromHere = start >= skill;
+        (s.items || []).forEach((it) => {
+          if (!it.id) return;
+          const cur = agg.get(it.id) || { id: it.id, name: it.name, qty: 0 };
+          cur.qty += this.qtyNum(it.qty);
+          agg.set(it.id, cur);
+          if (fromHere) {
+            const p = this.priceOf(it.id);
+            const have = this.haveOf(it.id);
+            const need = Math.max(0, this.qtyNum(it.qty) - (have ? have.n : 0));
+            if (p) remaining += p.min * need;
+          }
+        });
+      });
+      const rows = [];
+      let total = 0;
+      let missing = 0;
+      agg.forEach((it) => {
+        const have = this.haveOf(it.id);
+        const need = Math.max(0, it.qty - (have ? have.n : 0));
+        const p = this.priceOf(it.id);
+        const cost = p ? p.min * need : 0;
+        if (!p) missing++;
+        total += cost;
+        rows.push({ ...it, have: have ? have.n : 0, need, cost, price: p ? p.min : 0, priced: !!p });
+      });
+      rows.sort((a, b) => b.cost - a.cost);
+      return { rows, total, missing, remaining };
     },
   },
   methods: {
@@ -1506,6 +1778,21 @@ export default {
       } catch {
         /* friends-only site — ignore, next load resyncs */
       }
+    },
+    // Larger sparkline for the item popup (300×60 viewBox).
+    popupSpark(points) {
+      if (!points || points.length < 2) return "";
+      const mins = points.map((p) => p.min);
+      const lo = Math.min(...mins);
+      const hi = Math.max(...mins);
+      const span = hi - lo || 1;
+      return points
+        .map((p, i) => {
+          const x = (i / (points.length - 1)) * 300;
+          const y = 56 - ((p.min - lo) / span) * 52;
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(" ");
     },
     // Sparkline polyline points from [{t, min}] — flat line when no history.
     sparkPath(points) {
@@ -1714,6 +2001,128 @@ export default {
     },
     classColor(c) {
       return CLASS_COLORS[(c.class || "").toLowerCase()] || "var(--ink)";
+    },
+    // --- presence ----------------------------------------------------------
+    async loadPresence() {
+      try {
+        const res = await api.presence();
+        this.presence = res.presence || {};
+      } catch {
+        this.presence = {};
+      }
+    },
+    isOnline(name) {
+      return this.onlineSet.has(name);
+    },
+    // --- Guild Board -------------------------------------------------------
+    async loadBoard() {
+      try {
+        this.board = await api.board();
+        this.boardError = "";
+      } catch {
+        this.boardError = "Could not load the board.";
+      }
+    },
+    async addOrder() {
+      if (!this.newOrder.item_name.trim()) return;
+      try {
+        await api.boardOrderAdd(
+          { ...this.newOrder, qty: parseInt(this.newOrder.qty, 10) || 1 },
+          this.postToken
+        );
+        this.newOrder = { item_name: "", qty: 1, wanted_by: "", note: "" };
+        await this.loadBoard();
+      } catch {
+        this.boardError = "Posting failed — check your member token.";
+      }
+    },
+    async setOrderStatus(o, status) {
+      try {
+        await api.boardOrderStatus(o.id, { name: this.rsvpName || "Someone", status }, this.postToken);
+        await this.loadBoard();
+      } catch {
+        this.boardError = "Update failed — check your member token.";
+      }
+    },
+    async removeOrder(o) {
+      try {
+        await api.boardOrderDelete(o.id, this.postToken);
+        await this.loadBoard();
+      } catch {
+        /* friends-only site — ignore */
+      }
+    },
+    async addEvent() {
+      if (!this.newEvent.title.trim()) return;
+      try {
+        await api.boardEventAdd(this.newEvent, this.postToken);
+        this.newEvent = { title: "", when_text: "", note: "" };
+        await this.loadBoard();
+      } catch {
+        this.boardError = "Posting failed — check your member token.";
+      }
+    },
+    async removeEvent(e) {
+      try {
+        await api.boardEventDelete(e.id, this.postToken);
+        await this.loadBoard();
+      } catch {
+        /* ignore */
+      }
+    },
+    async rsvp(e, status) {
+      if (!this.rsvpName.trim()) {
+        this.boardError = "Pick your name first (top of the board).";
+        return;
+      }
+      localStorage.setItem("munkehub_rsvp_name", this.rsvpName.trim());
+      try {
+        await api.boardRsvp(e.id, { name: this.rsvpName.trim(), status }, this.postToken);
+        await this.loadBoard();
+      } catch {
+        this.boardError = "RSVP failed — check your member token.";
+      }
+    },
+    rsvpCount(e, status) {
+      return (e.rsvps || []).filter((r) => r.status === status).length;
+    },
+    myRsvp(e) {
+      const me = (e.rsvps || []).find((r) => r.name === this.rsvpName.trim());
+      return me ? me.status : "";
+    },
+    // --- item detail popup -------------------------------------------------
+    async openItem(id, name) {
+      this.itemPopup = { id, name, price: null, points: [] };
+      try {
+        const [pr, hi] = await Promise.all([api.ahPrices([id]), api.ahHistory([id])]);
+        this.itemPopup = {
+          id,
+          name,
+          price: (pr.prices && pr.prices[id]) || null,
+          points: (hi.points && hi.points[id]) || [],
+        };
+      } catch {
+        /* keep the popup open with what we have */
+      }
+    },
+    closeItem() {
+      this.itemPopup = null;
+    },
+    // --- buy list cart -----------------------------------------------------
+    cartText() {
+      const c = this.buyCart;
+      if (!c) return "";
+      const lines = c.rows
+        .filter((r) => r.need > 0)
+        .map((r) => `${r.need}x ${r.name}`);
+      return lines.join("\n") + `\nTotal: ${this.fmtMoney(c.total)}`;
+    },
+    async copyCart() {
+      try {
+        await navigator.clipboard.writeText(this.cartText());
+      } catch {
+        /* clipboard blocked — the text is visible for manual copy */
+      }
     },
     classSlug(cls) {
       return "c-" + (cls || "").toLowerCase().replace(/[^a-z]/g, "");
@@ -2376,9 +2785,24 @@ main {
 /* ---------------- dashboard ---------------- */
 .dash {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 0.8rem;
   margin-bottom: 0.8rem;
+}
+/* online dot on roster names */
+.online-dot {
+  color: #555;
+  font-size: 0.7rem;
+  margin-right: 0.35rem;
+  vertical-align: 1px;
+}
+.online-dot.on {
+  color: #7fd18a;
+  text-shadow: 0 0 6px rgba(127, 209, 138, 0.8);
+}
+.mount-bar {
+  width: 100%;
+  margin-top: 0.35rem;
 }
 .dash-card {
   background: var(--stone);
@@ -3127,6 +3551,195 @@ details[open] > summary.guide-h4::after {
   color: var(--muted);
   text-align: center;
 }
+/* ---------------- Guild Board ---------------- */
+.board-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.8rem;
+}
+.board-form {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0;
+}
+.board-form input {
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.7rem;
+  flex: 1;
+  min-width: 140px;
+}
+.board-form input:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+.board-form .qty-input {
+  flex: 0 0 70px;
+  min-width: 70px;
+}
+.board-form button {
+  background: linear-gradient(180deg, #d9b45c, #a8842f);
+  border: 1px solid var(--gold);
+  border-radius: 6px;
+  color: #1a1508;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+}
+.board-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  background: var(--stone-light);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 0.65rem 0.9rem;
+  margin-bottom: 0.55rem;
+}
+.board-card.done {
+  opacity: 0.55;
+}
+.board-card.done .bc-main b {
+  text-decoration: line-through;
+}
+.bc-main {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.bc-when {
+  color: var(--gold-bright);
+  font-size: 0.8rem;
+}
+.bc-note {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.bc-side,
+.bc-rsvp {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.bc-claim {
+  color: var(--gold-bright);
+  font-size: 0.82rem;
+}
+.bc-done {
+  color: #7fd18a;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+.rsvp-btn {
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.rsvp-btn:hover {
+  border-color: var(--gold);
+  color: var(--ink);
+}
+.rsvp-btn.on {
+  background: rgba(200, 164, 77, 0.15);
+  border-color: var(--gold);
+  color: var(--gold-bright);
+  font-weight: 700;
+}
+.rsvp-btn.maybe.on {
+  background: rgba(247, 226, 173, 0.12);
+  border-color: rgba(247, 226, 173, 0.5);
+  color: #ffe2a6;
+}
+.rsvp-btn.no.on {
+  background: rgba(224, 122, 122, 0.12);
+  border-color: rgba(224, 122, 122, 0.5);
+  color: #e07a7a;
+}
+/* ---------------- item popup ---------------- */
+.popup-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 1rem;
+}
+.item-popup {
+  background: var(--stone);
+  border: 1px solid var(--gold);
+  border-radius: 10px;
+  padding: 1.1rem 1.3rem;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+}
+.popup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.7rem;
+}
+.popup-head h3 {
+  margin: 0;
+  color: var(--gold-bright);
+  font-family: Georgia, serif;
+}
+.popup-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+.popup-stat {
+  background: var(--stone-light);
+  border: 1px solid var(--edge);
+  border-top: 2px solid var(--gold);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.popup-stat .dash-num {
+  font-size: 1rem;
+}
+.popup-spark {
+  width: 100%;
+  height: 60px;
+  margin-bottom: 0.6rem;
+}
+.popup-spark polyline {
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
 /* MunkeHub AI advisor card */
 .ah-advisor {
   background: rgba(200, 164, 77, 0.06);
@@ -3292,6 +3905,60 @@ details[open] > summary.guide-h4::after {
   color: var(--muted);
   margin-left: 0.4rem;
   white-space: nowrap;
+}
+/* skill banner: your level + remaining cost */
+.skill-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  background: rgba(127, 209, 138, 0.07);
+  border: 1px solid rgba(127, 209, 138, 0.35);
+  border-radius: 8px;
+  padding: 0.55rem 0.9rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.88rem;
+}
+.sb-label {
+  color: var(--muted);
+}
+.sb-level {
+  color: #7fd18a;
+  font-family: Georgia, serif;
+  font-size: 1.1rem;
+}
+.sb-bar {
+  width: 140px;
+}
+.sb-cost {
+  margin-left: auto;
+  color: var(--gold-bright);
+  font-weight: 700;
+}
+/* buy list cart */
+.cart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+.shop-have-cell {
+  color: #7fd18a;
+  font-weight: 700;
+}
+.link-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.78rem;
+  padding: 0 0.15rem;
+  opacity: 0.6;
+  vertical-align: middle;
+}
+.link-btn:hover {
+  opacity: 1;
 }
 /* "✓ have" — already in our bags */
 .shop-have {

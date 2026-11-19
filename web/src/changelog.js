@@ -2,6 +2,19 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.25",
+    date: "2026-11-19",
+    entries: [
+      "Guides: your skill level shows in the guide — progress bar plus what it costs to reach 300 from where you are.",
+      "Guides: Buy List — every shopping tier aggregated, minus what's already in our bags, with a copy button for in-game shopping.",
+      "Click any item (guides, auction tables) for a price popup: cheapest now, 7-day average, sales and a price chart.",
+      "Guild Board (new tab): crafting orders — post what you need, claim it, mark it done; and events with Going/Maybe/Can't sign-ups.",
+      "Roster: green dot shows who is in game right now (helper heartbeats).",
+      "Dashboard: guild gold total + epic mount fund progress bar.",
+      "The AI now writes a weekly \"Week in review\" announcement every Sunday evening.",
+    ],
+  },
+  {
     version: "0.8.24",
     date: "2026-11-19",
     entries: [

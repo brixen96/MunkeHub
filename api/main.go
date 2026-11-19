@@ -25,11 +25,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.24"
+const version = "0.8.25"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
-const helperVersion = "0.7.2"
+const helperVersion = "0.7.3"
 
 type Announcement struct {
 	ID        int64     `json:"id"`
@@ -53,6 +53,7 @@ type Character struct {
 	Zone        string    `json:"zone"`
 	Played      int       `json:"played"`    // seconds
 	Professions string    `json:"professions"` // comma-separated names (Tailoring,Enchanting)
+	ProfLevels  string    `json:"prof_levels"` // "Tailoring:225,Enchanting:5" — skill levels
 	Gold        int64     `json:"gold"`      // copper — for the epic mount goal
 	Detail      string    `json:"detail"`    // gear JSON array (empty if not synced)
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -108,6 +109,22 @@ func main() {
 
 		// Dashboard stats
 		api.GET("/stats", func(c *gin.Context) { guildStats(c, db) })
+
+		// Presence: helper heartbeats (token) + roster online dots (public)
+		api.POST("/presence", requireToken(db), func(c *gin.Context) { upsertPresence(c, db) })
+		api.GET("/presence", func(c *gin.Context) { listPresence(c, db) })
+
+		// Guild Board: crafting orders + events (reads public, writes member token)
+		api.GET("/board", func(c *gin.Context) { boardData(c, db) })
+		api.POST("/board/orders", requireMemberOrAdmin(db), func(c *gin.Context) { createOrder(c, db) })
+		api.POST("/board/orders/:id", requireMemberOrAdmin(db), func(c *gin.Context) { setOrderStatus(c, db) })
+		api.DELETE("/board/orders/:id", requireMemberOrAdmin(db), func(c *gin.Context) { deleteOrder(c, db) })
+		api.POST("/board/events", requireMemberOrAdmin(db), func(c *gin.Context) { createEvent(c, db) })
+		api.DELETE("/board/events/:id", requireMemberOrAdmin(db), func(c *gin.Context) { deleteEvent(c, db) })
+		api.POST("/board/events/:id/rsvp", requireMemberOrAdmin(db), func(c *gin.Context) { rsvpEvent(c, db) })
+
+		// Weekly AI digest preview (auto-posts on Sundays via the poller)
+		api.GET("/ah/digest", func(c *gin.Context) { ahDigestHandler(c, db) })
 
 		// Item icons: lazy-fetched from wow.zamimg.com, cached forever on disk
 		api.GET("/icon/:name", func(c *gin.Context) { serveIcon(c) })
@@ -235,6 +252,36 @@ func migrate(db *sql.DB) error {
 			body       TEXT NOT NULL,
 			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 			PRIMARY KEY (name, realm)
+		);
+		CREATE TABLE IF NOT EXISTS presence (
+			name      TEXT PRIMARY KEY,
+			online    INTEGER NOT NULL DEFAULT 0,
+			last_seen TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE IF NOT EXISTS orders (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			item_id    INTEGER NOT NULL DEFAULT 0,
+			item_name  TEXT NOT NULL,
+			qty        INTEGER NOT NULL DEFAULT 1,
+			wanted_by  TEXT NOT NULL DEFAULT '',
+			note       TEXT NOT NULL DEFAULT '',
+			status     TEXT NOT NULL DEFAULT 'open',
+			claimed_by TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE IF NOT EXISTS events (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			title      TEXT NOT NULL,
+			when_text  TEXT NOT NULL DEFAULT '',
+			note       TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE IF NOT EXISTS event_rsvps (
+			event_id   INTEGER NOT NULL,
+			name       TEXT NOT NULL,
+			status     TEXT NOT NULL DEFAULT 'yes',
+			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (event_id, name)
 		);`)
 	if err != nil {
 		return err
@@ -252,6 +299,7 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE characters ADD COLUMN bid INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE characters ADD COLUMN professions TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE characters ADD COLUMN gold INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE characters ADD COLUMN prof_levels TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.Exec(alter); err != nil &&
 			!strings.Contains(err.Error(), "duplicate column") {
@@ -478,7 +526,7 @@ func createToken(c *gin.Context, db *sql.DB) {
 func listCharacters(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`
 		SELECT c.id, c.name, c.last_name, c.realm, c.race, c.class, c.level, c.ilvl,
-		       c.spec, c.spec_icon, c.bid, c.zone, c.played, c.professions, c.gold,
+		       c.spec, c.spec_icon, c.bid, c.zone, c.played, c.professions, c.prof_levels, c.gold,
 		       c.detail, c.updated_at
 		FROM characters c
 		ORDER BY c.level DESC, c.name ASC`)
@@ -494,7 +542,7 @@ func listCharacters(c *gin.Context, db *sql.DB) {
 		var updatedAt string
 		if err := rows.Scan(&ch.ID, &ch.Name, &ch.LastName, &ch.Realm, &ch.Race, &ch.Class,
 			&ch.Level, &ch.ILvl, &ch.Spec, &ch.SpecIcon, &ch.Bid, &ch.Zone, &ch.Played,
-			&ch.Professions, &ch.Gold, &ch.Detail, &updatedAt); err != nil {
+			&ch.Professions, &ch.ProfLevels, &ch.Gold, &ch.Detail, &updatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -568,11 +616,17 @@ func guildStats(c *gin.Context, db *sql.DB) {
 	if count > 0 {
 		avgLevel = float64(totalLevel) / float64(count)
 	}
+
+	// gold dashboard: total + per-character (copper) + mount goal
+	g := guildFacts(db)
 	c.JSON(http.StatusOK, gin.H{
-		"characters": count,
-		"avg_level":  math.Round(avgLevel*10) / 10,
-		"avg_ilvl":   math.Round(avgILvl*10) / 10,
-		"classes":    classes,
+		"characters":   count,
+		"avg_level":    math.Round(avgLevel*10) / 10,
+		"avg_ilvl":     math.Round(avgILvl*10) / 10,
+		"classes":      classes,
+		"total_gold":   g.TotalGold,
+		"mount_goal":   g.MountGoal,
+		"gold_by_char": g.GoldByChar,
 	})
 }
 
@@ -586,7 +640,8 @@ type charIn struct {
 	ILvl        float64 `json:"ilvl"`
 	Bid         int64   `json:"bid"`
 	Professions string  `json:"professions"` // comma-separated names
-	Gold        int64   `json:"gold"`        // copper
+	ProfLevels  string  `json:"prof_levels"`  // "Tailoring:225,..."
+	Gold        int64   `json:"gold"`         // copper
 }
 
 func upsertCharacter(c *gin.Context, db *sql.DB) {
@@ -605,18 +660,19 @@ func upsertCharacter(c *gin.Context, db *sql.DB) {
 
 func upsertChar(db *sql.DB, tokenID int64, in charIn) error {
 	_, err := db.Exec(`
-		INSERT INTO characters (token_id, name, last_name, realm, race, class, level, ilvl, bid, professions, gold, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		INSERT INTO characters (token_id, name, last_name, realm, race, class, level, ilvl, bid, professions, prof_levels, gold, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT (name, realm) DO UPDATE SET
 			token_id = excluded.token_id, last_name = excluded.last_name,
 			race = excluded.race,
 			class = excluded.class, level = excluded.level, ilvl = excluded.ilvl,
 			bid = excluded.bid,
 			professions = CASE WHEN excluded.professions != '' THEN excluded.professions ELSE characters.professions END,
+			prof_levels = CASE WHEN excluded.prof_levels != '' THEN excluded.prof_levels ELSE characters.prof_levels END,
 			gold = CASE WHEN excluded.gold > 0 THEN excluded.gold ELSE characters.gold END,
 			updated_at = datetime('now')`,
 		tokenID, in.Name, in.LastName, in.Realm, in.Race, in.Class, in.Level, in.ILvl, in.Bid,
-		in.Professions, in.Gold)
+		in.Professions, in.ProfLevels, in.Gold)
 	return err
 }
 

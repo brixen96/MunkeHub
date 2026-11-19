@@ -44,7 +44,7 @@ import (
 )
 
 // version MUST match helperVersion in api/main.go.
-const version = "0.7.2"
+const version = "0.7.3"
 
 // Matches ["syncJSON"]="..." or syncJSON="..." in the SavedVariables file.
 var syncRe = regexp.MustCompile(`\[?"syncJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
@@ -59,6 +59,75 @@ var detailRe = regexp.MustCompile(`\[?"detailJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`
 var bagsRe = regexp.MustCompile(`\[?"bagsJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
 
 const defaultGlob = `C:\Program Files (x86)\World of Warcraft\_forever_\WTF\Account\*\SavedVariables\MunkeHub.lua`
+
+// --- presence ---------------------------------------------------------------
+//
+// SavedVariables only hit disk on /reload, so file watching can't tell us
+// whether someone is IN GAME. Instead we watch for the WoW client process
+// (Wow.exe) and heartbeat to POST /api/v1/presence: on state change + a
+// keepalive every 60s while online. The API marks a character online while
+// keepalives are < 3 min old.
+
+var nameRe = regexp.MustCompile(`"name":"([^"]*)"`)
+
+// wowRunning reports whether the WoW client process is alive.
+func wowRunning() bool {
+	out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq Wow.exe", "/NH").Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(out)), "wow.exe")
+}
+
+// startPresence heartbeats the online state until the process exits.
+func startPresence(apiURL, token string, getContent func() []byte) {
+	go func() {
+		var lastOnline bool
+		var lastPost time.Time
+		for range time.Tick(60 * time.Second) {
+			online := wowRunning()
+			changed := online != lastOnline
+			keepalive := online && time.Since(lastPost) >= 55*time.Second
+			if !changed && !keepalive {
+				continue
+			}
+			// character name comes from the last synced payload — the file
+			// stores ESCAPED Lua strings, so unescape syncJSON first, then
+			// pull the name out of the clean JSON.
+			name := ""
+			if content := getContent(); content != nil {
+				if payload, err := extractField(content, syncRe, "syncJSON"); err == nil {
+					if m := nameRe.FindStringSubmatch(payload); m != nil {
+						name = m[1]
+					}
+				}
+			}
+			if name == "" {
+				lastOnline = online
+				continue // no sync yet — nothing to attribute the heartbeat to
+			}
+			body, _ := json.Marshal(map[string]any{"name": name, "online": online})
+			req, err := http.NewRequest("POST", strings.TrimRight(apiURL, "/")+"/api/v1/presence", bytes.NewReader(body))
+			if err != nil {
+				continue
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+token)
+			client := &http.Client{Timeout: 10 * time.Second}
+			res, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			res.Body.Close()
+			if res.StatusCode == http.StatusOK {
+				lastOnline, lastPost = online, time.Now()
+				if changed {
+					logf("presence: %s -> %s", name, map[bool]string{true: "online", false: "offline"}[online])
+				}
+			}
+		}
+	}()
+}
 
 func unescapeLua(s string) string {
 	var b strings.Builder
@@ -453,6 +522,15 @@ func main() {
 	} else {
 		logf("token:    from config.json")
 	}
+
+	// presence: heartbeat while the WoW client process is running
+	startPresence(*apiURL, *token, func() []byte {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		return b
+	})
 
 	var lastMod time.Time
 	var lastSize int64

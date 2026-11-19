@@ -9,7 +9,7 @@ async function get(path) {
 }
 
 // Bump on every release — shown in the footer so Emil can verify versions.
-export const WEB_VERSION = "0.8.24";
+export const WEB_VERSION = "0.8.25";
 
 export const api = {
   health: () => fetch("/health").then((r) => r.json()),
@@ -62,6 +62,46 @@ export const api = {
   ahPrices: (ids) => get(`/ah/prices?ids=${ids.join(",")}`),
   // Merged bag scans from every character (no ?name= → guild-wide).
   ahBagsAll: () => get("/ah/bags"),
+  // Weekly AI digest preview (auto-posts on Sundays).
+  ahDigest: (refresh = false) => get(`/ah/digest${refresh ? "?refresh=1" : ""}`),
+  // Presence: who is in game right now (helper heartbeats).
+  presence: () => get("/presence"),
+  // Guild Board: crafting orders + events (reads public, writes member token).
+  board: () => get("/board"),
+  boardOrderAdd: (data, token) =>
+    fetch("/api/v1/board/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    }).then((r) => r.json()),
+  boardOrderStatus: (id, data, token) =>
+    fetch(`/api/v1/board/orders/${id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    }).then((r) => r.json()),
+  boardOrderDelete: (id, token) =>
+    fetch(`/api/v1/board/orders/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => r.json()),
+  boardEventAdd: (data, token) =>
+    fetch("/api/v1/board/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    }).then((r) => r.json()),
+  boardEventDelete: (id, token) =>
+    fetch(`/api/v1/board/events/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => r.json()),
+  boardRsvp: (id, data, token) =>
+    fetch(`/api/v1/board/events/${id}/rsvp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    }).then((r) => r.json()),
   // Guild watchlist (⭐) — friends-only site, no auth by design.
   ahWatchlist: () => get("/ah/watchlist"),
   ahWatchAdd: (id) =>
