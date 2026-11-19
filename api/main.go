@@ -25,11 +25,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.26"
+const version = "0.8.27"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
-const helperVersion = "0.7.3"
+const helperVersion = "0.7.4"
 
 type Announcement struct {
 	ID        int64     `json:"id"`
@@ -106,6 +106,11 @@ func main() {
 
 		// Bag contents (helper path only) + valued view for the website
 		api.POST("/characters/bags", requireToken(db), func(c *gin.Context) { upsertBags(c, db) })
+
+		// Quest log: helper uploads (token), website reads + AI advice (public)
+		api.POST("/characters/quests", requireToken(db), func(c *gin.Context) { upsertQuests(c, db) })
+		api.GET("/quests", func(c *gin.Context) { questLogHandler(c, db) })
+		api.GET("/quests/advice", func(c *gin.Context) { questAdviceHandler(c, db) })
 		api.GET("/ah/bags", func(c *gin.Context) { ahBags(c, db) })
 
 		// Dashboard stats
@@ -283,6 +288,13 @@ func migrate(db *sql.DB) error {
 			status     TEXT NOT NULL DEFAULT 'yes',
 			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 			PRIMARY KEY (event_id, name)
+		);
+		CREATE TABLE IF NOT EXISTS quest_logs (
+			name       TEXT NOT NULL,
+			realm      TEXT NOT NULL DEFAULT '',
+			body       TEXT NOT NULL,
+			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (name, realm)
 		);`)
 	if err != nil {
 		return err

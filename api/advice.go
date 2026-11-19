@@ -423,11 +423,6 @@ func ahAdviceHandler(c *gin.Context, db *sql.DB) {
 
 // callOpenRouter sends the digest and asks for strict JSON back.
 func callOpenRouter(apiKey string, digest ahDigest) (json.RawMessage, error) {
-	model := os.Getenv("MUNKEHUB_AI_MODEL")
-	if model == "" {
-		model = "deepseek/deepseek-chat"
-	}
-
 	system := `You are the MunkeHub AI advisor for the WoW: Forever guild "Munkeklubben" (Horde, EU RPPVP).
 You get auction house data (already cleaned: suspicious rows are flagged), the guild's professions, and each member's gold.
 The guild's goal: save for epic mounts (see mount_goal in copper).
@@ -438,15 +433,26 @@ Rules:
 - Keep every "why" under 20 words, plain English, gold amounts in gold/silver.
 - Answer ONLY with this JSON shape:
 {"summary":"2-3 sentences","sell":[{"item":"...","why":"..."}],"farm":[{"item":"...","why":"..."}],"avoid":[{"item":"...","why":"..."}],"mount":"1-2 sentences on mount progress"}`
+	return callLLM(apiKey, system, mustJSON(digest), adviceMaxTokens, 0.4)
+}
+
+// callLLM is the shared OpenRouter chat call: system + user prompt in,
+// strict JSON text out (markdown fences stripped). Used by the auction
+// advisor and the quest advisor.
+func callLLM(apiKey, system, user string, maxTokens int, temperature float64) (json.RawMessage, error) {
+	model := os.Getenv("MUNKEHUB_AI_MODEL")
+	if model == "" {
+		model = "deepseek/deepseek-chat"
+	}
 
 	body, _ := json.Marshal(map[string]any{
 		"model": model,
 		"messages": []map[string]string{
 			{"role": "system", "content": system},
-			{"role": "user", "content": mustJSON(digest)},
+			{"role": "user", "content": user},
 		},
-		"max_tokens": adviceMaxTokens,
-		"temperature": 0.4,
+		"max_tokens": maxTokens,
+		"temperature": temperature,
 	})
 
 	req, err := http.NewRequest("POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewReader(body))

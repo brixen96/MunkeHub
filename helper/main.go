@@ -44,7 +44,7 @@ import (
 )
 
 // version MUST match helperVersion in api/main.go.
-const version = "0.7.3"
+const version = "0.7.4"
 
 // Matches ["syncJSON"]="..." or syncJSON="..." in the SavedVariables file.
 var syncRe = regexp.MustCompile(`\[?"syncJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
@@ -57,6 +57,9 @@ var detailRe = regexp.MustCompile(`\[?"detailJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`
 
 // Matches ["bagsJSON"]="..." (bag contents aggregated by itemID).
 var bagsRe = regexp.MustCompile(`\[?"bagsJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
+
+// Matches ["questJSON"]="..." (quest log + objectives for the Quests tab).
+var questRe = regexp.MustCompile(`\[?"questJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
 
 const defaultGlob = `C:\Program Files (x86)\World of Warcraft\_forever_\WTF\Account\*\SavedVariables\MunkeHub.lua`
 
@@ -579,6 +582,14 @@ func main() {
 		if bags, err := extractField(content, bagsRe, "bagsJSON"); err == nil && strings.TrimSpace(bags) != "" {
 			if err := post(*apiURL, *token, "/api/v1/characters/bags", bags); err != nil {
 				logf("bags error: %v", err)
+				return
+			}
+		}
+
+		// 5. Own quest log (Quests tab) — helper path only
+		if quest, err := extractField(content, questRe, "questJSON"); err == nil && strings.TrimSpace(quest) != "" {
+			if err := post(*apiURL, *token, "/api/v1/characters/quests", quest); err != nil {
+				logf("quests error: %v", err)
 				return
 			}
 		}

@@ -32,6 +32,9 @@
         <button :class="{ active: tab === 'guides' }" @click="tab = 'guides'">
           Guides
         </button>
+        <button :class="{ active: tab === 'quests' }" @click="tab = 'quests'; loadQuests()">
+          Quests
+        </button>
         <button :class="{ active: tab === 'board' }" @click="tab = 'board'">
           Guild Board
         </button>
@@ -614,6 +617,86 @@
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- ================= QUESTS ================= -->
+      <section v-show="tab === 'quests'">
+        <div class="panel">
+          <h2 class="panel-title">Quest Helper <span class="hint">— AI advice from your quest log</span></h2>
+
+          <div class="roster-tools" v-if="characters && characters.length">
+            <select v-model="questName" class="ah-select" @change="loadQuests()" aria-label="Character">
+              <option v-for="c in characters" :key="c.id" :value="c.name">{{ fullName(c) }}</option>
+            </select>
+            <button class="chip" :disabled="questAdviceLoading"
+                    @click="loadQuestAdvice(true)">
+              {{ questAdviceLoading ? 'Thinking…' : '↻ Ask AI' }}
+            </button>
+            <span class="rt-count" v-if="quests">
+              Level {{ quests.level }} · {{ quests.quests.length }} quest{{ quests.quests.length === 1 ? '' : 's' }} in log
+            </span>
+          </div>
+
+          <p v-if="questError" class="error">{{ questError }}</p>
+
+          <!-- AI advice -->
+          <div v-if="questAdvice" class="quest-advice">
+            <p class="qa-summary">{{ questAdvice.summary }}</p>
+            <div v-if="questAdvice.next" class="qa-next">
+              <span class="qa-label">Do next</span>
+              <b class="qa-next-title">{{ questAdvice.next.quest }}</b>
+              <span class="qa-why">{{ questAdvice.next.why }}</span>
+            </div>
+            <div class="qa-cols">
+              <div v-if="questAdvice.turn_in.length" class="qa-col qa-turnin">
+                <h4>✅ Turn in now</h4>
+                <div v-for="t in questAdvice.turn_in" :key="t.quest" class="qa-item">
+                  <b>{{ t.quest }}</b><span>{{ t.why }}</span>
+                </div>
+              </div>
+              <div v-if="questAdvice.do_now.length" class="qa-col">
+                <h4>⚔️ Do now</h4>
+                <div v-for="t in questAdvice.do_now" :key="t.quest" class="qa-item">
+                  <b>{{ t.quest }}</b><span>{{ t.why }}</span>
+                </div>
+              </div>
+              <div v-if="questAdvice.avoid.length" class="qa-col qa-avoid">
+                <h4>⛔ Avoid</h4>
+                <div v-for="t in questAdvice.avoid" :key="t.quest" class="qa-item">
+                  <b>{{ t.quest }}</b><span>{{ t.why }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p v-else-if="questAdviceError" class="error">{{ questAdviceError }}</p>
+
+          <!-- quest log -->
+          <template v-if="quests && quests.quests.length">
+            <h3 class="quest-h3">Quest log</h3>
+            <div v-for="q in quests.quests" :key="q.id" class="quest-card"
+                 :class="{ complete: q.complete, failed: q.failed }">
+              <div class="qc-head">
+                <span class="qc-level" :class="questDiff(q)">{{ q.level }}</span>
+                <b class="qc-title">{{ q.title }}</b>
+                <span v-if="q.tag" class="qc-tag">{{ q.tag }}</span>
+                <span v-if="q.complete" class="qc-done">✓ ready to turn in</span>
+                <span v-else-if="q.failed" class="qc-failed">failed</span>
+              </div>
+              <div v-if="q.objectives && q.objectives.length" class="qc-objs">
+                <div v-for="(o, oi) in q.objectives" :key="oi" class="qc-obj"
+                     :class="{ done: o.done }">
+                  <span class="qc-obj-text">{{ o.done ? '✓' : '•' }} {{ o.text }}</span>
+                  <span class="qc-obj-count">{{ o.have }}/{{ o.need }}</span>
+                  <span v-if="bagHave(q, o) > 0" class="qc-bag">🎒 {{ bagHave(q, o) }} in bags</span>
+                  <div class="qc-bar"><div class="qc-fill" :style="{ width: objPct(o) + '%' }"></div></div>
+                </div>
+              </div>
+            </div>
+          </template>
+          <p v-else-if="!questError" class="muted">
+            No quest log synced yet — /reload in game, then the helper uploads it.
+          </p>
         </div>
       </section>
 
@@ -1497,6 +1580,13 @@ export default {
       rsvpName: localStorage.getItem("munkehub_rsvp_name") || "",
       // item detail popup (7-day chart + price facts)
       itemPopup: null, // {id, name, price, points}
+      // Quest Helper tab
+      questName: "", // selected character (first roster char by default)
+      quests: null, // {name, level, quests: [...], updated_at}
+      questError: "",
+      questAdvice: null, // {summary, next, turn_in, do_now, avoid}
+      questAdviceLoading: false,
+      questAdviceError: "",
       // buy list cart (aggregated shopping list minus bags)
       cartOpen: false,
       // --- Auction House tab ---
@@ -1765,6 +1855,8 @@ export default {
         return (x < y ? -1 : x > y ? 1 : 0) * dir;
       });
     },
+    // Quest Helper: quest log of the selected character.
+    // (quests is loaded on tab open — see loadQuests)
     // Best skill level for the selected guide's profession (any character).
     guideSkill() {
       const g = this.guides.find((x) => x.id === this.guideSel);
@@ -2173,6 +2265,63 @@ export default {
       } catch {
         this.presence = {};
       }
+    },
+    // --- Quest Helper ------------------------------------------------------
+    async loadQuests() {
+      if (!this.questName && this.characters && this.characters.length) {
+        this.questName = this.characters[0].name;
+      }
+      if (!this.questName) return;
+      this.questError = "";
+      this.quests = null;
+      this.questAdvice = null;
+      this.questAdviceError = "";
+      try {
+        this.quests = await api.quests(this.questName);
+      } catch (e) {
+        this.questError =
+          String(e).includes("404")
+            ? "No quest log synced yet for this character — /reload in game."
+            : "Could not load the quest log.";
+      }
+      // advice loads lazily with the log (cached 1h server-side)
+      this.loadQuestAdvice(false);
+    },
+    async loadQuestAdvice(refresh) {
+      if (!this.questName) return;
+      this.questAdviceLoading = true;
+      this.questAdviceError = "";
+      try {
+        this.questAdvice = await api.questAdvice(this.questName, refresh);
+      } catch (e) {
+        this.questAdvice = null;
+        this.questAdviceError = String(e).includes("503")
+          ? "AI advisor not configured (OPENROUTER_API_KEY missing)."
+          : String(e).includes("502")
+            ? "AI request failed — try again in a moment."
+            : "No advice yet — accept some quests first.";
+      } finally {
+        this.questAdviceLoading = false;
+      }
+    },
+    // Difficulty color: green = at/above level, red = 5+ below (grey XP).
+    questDiff(q) {
+      const lvl = this.quests ? this.quests.level : 0;
+      const d = q.level - lvl;
+      if (d >= 0) return "qd-green";
+      if (d >= -4) return "qd-yellow";
+      if (d >= -7) return "qd-orange";
+      return "qd-grey";
+    },
+    // How many of this objective's item are already in bags.
+    bagHave(q, o) {
+      if (o.type !== "item" || !o.id || !q.in_bag) return 0;
+      return q.in_bag[String(o.id)] || 0;
+    },
+    objPct(o) {
+      if (o.done) return 100;
+      if (!o.need) return 0;
+      return Math.min(100, Math.round((o.have / o.need) * 100));
     },
     isOnline(name) {
       return this.onlineSet.has(name);
@@ -3121,6 +3270,133 @@ main {
 }
 .cc-fill { height: 100%; border-radius: 999px; }
 .cc-count { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+
+/* ---------------- quest helper ---------------- */
+.quest-advice {
+  background: var(--stone);
+  border: 1px solid var(--edge);
+  border-top: 2px solid var(--gold);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  margin-bottom: 1rem;
+}
+.qa-summary {
+  color: var(--ink);
+  margin-bottom: 0.7rem;
+  line-height: 1.5;
+}
+.qa-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  background: rgba(212, 175, 55, 0.08);
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  padding: 0.55rem 0.8rem;
+  margin-bottom: 0.8rem;
+}
+.qa-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+  font-weight: 700;
+}
+.qa-next-title { color: var(--gold-bright); font-size: 1.02rem; }
+.qa-why { color: var(--muted); font-size: 0.85rem; }
+.qa-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem;
+}
+.qa-col h4 {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+.qa-item {
+  display: flex;
+  flex-direction: column;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid rgba(58, 56, 64, 0.5);
+}
+.qa-item:last-child { border-bottom: 0; }
+.qa-item b { font-size: 0.9rem; }
+.qa-item span { color: var(--muted); font-size: 0.8rem; }
+.qa-avoid .qa-item b { color: #e0a34a; }
+.qa-turnin .qa-item b { color: #7fd18a; }
+
+.quest-h3 {
+  font-size: 0.95rem;
+  color: var(--gold-bright);
+  margin: 1rem 0 0.5rem;
+}
+.quest-card {
+  background: #16151a;
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--gold);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.55rem;
+}
+.quest-card.complete { border-left-color: #7fd18a; }
+.quest-card.failed { border-left-color: #e05d5d; opacity: 0.75; }
+.qc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.qc-level {
+  font-weight: 700;
+  font-size: 0.85rem;
+  min-width: 1.6rem;
+  text-align: center;
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+}
+.qd-green { color: #40c040; }
+.qd-yellow { color: #ffd100; }
+.qd-orange { color: #ff8000; }
+.qd-grey { color: #9d9d9d; }
+.qc-title { font-size: 0.95rem; }
+.qc-tag {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  color: #ff9020;
+  border: 1px solid #ff9020;
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+.qc-done { color: #7fd18a; font-size: 0.8rem; font-weight: 700; }
+.qc-failed { color: #e05d5d; font-size: 0.8rem; }
+.qc-objs { margin-top: 0.4rem; }
+.qc-obj {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.2rem 0.6rem;
+  align-items: center;
+  font-size: 0.85rem;
+  padding: 0.15rem 0;
+}
+.qc-obj.done .qc-obj-text { color: #7fd18a; }
+.qc-obj-count { color: var(--muted); font-size: 0.78rem; }
+.qc-bag { font-size: 0.72rem; color: var(--gold-bright); }
+.qc-bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.qc-fill { height: 100%; background: var(--gold); }
+.qc-obj.done .qc-fill { background: #7fd18a; }
 
 /* roster tools: search + filters + copy */
 .roster-tools {

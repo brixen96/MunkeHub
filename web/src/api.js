@@ -9,7 +9,7 @@ async function get(path) {
 }
 
 // Bump on every release — shown in the footer so Emil can verify versions.
-export const WEB_VERSION = "0.8.26";
+export const WEB_VERSION = "0.8.27";
 
 export const api = {
   health: () => fetch("/health").then((r) => r.json()),
@@ -66,6 +66,11 @@ export const api = {
   ahDigest: (refresh = false) => get(`/ah/digest${refresh ? "?refresh=1" : ""}`),
   // Presence: who is in game right now (helper heartbeats).
   presence: () => get("/presence"),
+  // Quest log: addon -> helper -> API, with bag progress merged in.
+  quests: (name) => get(`/quests?name=${encodeURIComponent(name)}`),
+  // AI quest advisor — cached 1h server-side; refresh=1 forces a new call.
+  questAdvice: (name, refresh = false) =>
+    get(`/quests/advice?name=${encodeURIComponent(name)}${refresh ? "&refresh=1" : ""}`),
   // Guild Board: crafting orders + events (reads public, writes member token).
   board: () => get("/board"),
   boardOrderAdd: (data, token) =>

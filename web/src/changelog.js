@@ -2,6 +2,16 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.27",
+    date: "2026-11-19",
+    entries: [
+      "Quests tab (new): your quest log on the website — levels, difficulty colors, objective progress, and which quests are ready to turn in.",
+      "Quest Helper AI: tells you what to do next, what to turn in now, and what to avoid (grey XP, group-only, escort chains).",
+      "Bag tracking: quest items already sitting in your bags are marked 🎒 so you know you can turn in.",
+      "Helper 0.7.4: uploads your quest log — updates itself automatically.",
+    ],
+  },
+  {
     version: "0.8.26",
     date: "2026-11-19",
     entries: [

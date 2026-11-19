@@ -1,4 +1,4 @@
--- MunkeHub v0.8.25 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.27 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -16,6 +16,7 @@ local defaults = {
     detailJSON = "", -- deep detail: spec/zone/gear (helper path ONLY — too big for relay)
     relayJSON = "",  -- relayed guild stats array (read by the helper)
     bagsJSON = "",   -- bag contents aggregated by itemID (helper path ONLY)
+    questJSON = "",  -- quest log + objectives (helper path ONLY — Quests tab)
 }
 
 local function Print(msg)
@@ -272,10 +273,62 @@ local function BuildBagsJSON()
         table.concat(parts, ","))
 end
 
+-- Quest log for the Quests tab: id, title, level, tag, complete + objectives
+-- with progress. C_QuestLog is the Forever namespace — verified by grepping
+-- Questie/Leatrix/Plater in the client (GetInfo/GetQuestObjectives/IsComplete
+-- all present). Helper path ONLY — too big for the 240-byte relay.
+local function BuildQuestJSON()
+    if not C_QuestLog or not C_QuestLog.GetNumQuestLogEntries or not C_QuestLog.GetInfo then
+        return ""
+    end
+    local esc = function(s) return (tostring(s):gsub('[\\"]', function(c) return "\\" .. c end)) end
+    local parts = {}
+    local numEntries = C_QuestLog.GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local info = C_QuestLog.GetInfo(i)
+        if info and not info.isHeader and type(info.questID) == "number" and info.questID > 0 then
+            local qid = info.questID
+            local complete = C_QuestLog.IsComplete and C_QuestLog.IsComplete(qid) or false
+            local failed = C_QuestLog.IsFailed and C_QuestLog.IsFailed(qid) or false
+            local tag = ""
+            if C_QuestLog.GetQuestTagInfo then
+                local t = C_QuestLog.GetQuestTagInfo(qid)
+                if t and type(t.tagName) == "string" then tag = t.tagName end
+            end
+            local objs = {}
+            if C_QuestLog.GetQuestObjectives then
+                local objectives = C_QuestLog.GetQuestObjectives(qid)
+                if type(objectives) == "table" then
+                    for _, o in ipairs(objectives) do
+                        if type(o) == "table" and o.text and o.text ~= "" then
+                            objs[#objs + 1] = string.format(
+                                '{"type":"%s","id":%d,"text":"%s","have":%d,"need":%d,"done":%s}',
+                                esc(o.type or ""), tonumber(o.id) or 0, esc(o.text),
+                                tonumber(o.numFulfilled) or 0, tonumber(o.numNeeded) or 0,
+                                (o.finished and "true" or "false"))
+                        end
+                    end
+                end
+            end
+            parts[#parts + 1] = string.format(
+                '{"id":%d,"title":"%s","level":%d,"group":%d,"tag":"%s","complete":%s,"failed":%s,"objectives":[%s]}',
+                qid, esc(info.title or ""), tonumber(info.level) or 0,
+                tonumber(info.suggestedGroup) or 0, esc(tag),
+                (complete and "true" or "false"), (failed and "true" or "false"),
+                table.concat(objs, ","))
+        end
+    end
+    local name = UnitName("player") or ""
+    local realm = GetRealmName() or ""
+    return string.format('{"name":"%s","realm":"%s","level":%d,"quests":[%s]}',
+        esc(name), esc(realm), tonumber(UnitLevel("player")) or 0, table.concat(parts, ","))
+end
+
 local function SyncStats()
     MunkeHubDB.syncJSON = BuildSyncJSON(true)
     MunkeHubDB.detailJSON = BuildDetailJSON()
     MunkeHubDB.bagsJSON = BuildBagsJSON()
+    MunkeHubDB.questJSON = BuildQuestJSON()
     if RequestTimePlayed then RequestTimePlayed() end -- fills played via TIME_PLAYED_MSG
     Print("stats saved — the helper uploads them (or /reload to flush now).")
 end
@@ -336,10 +389,20 @@ core:RegisterEvent("ADDON_LOADED")
 core:RegisterEvent("PLAYER_ENTERING_WORLD")
 core:RegisterEvent("CHAT_MSG_ADDON")
 core:RegisterEvent("TIME_PLAYED_MSG")
+-- quest log changes: refresh the payload so the helper picks it up on the
+-- next file write (/reload or logout — SavedVariables only hit disk then)
+core:RegisterEvent("QUEST_LOG_UPDATE")
+core:RegisterEvent("QUEST_ACCEPTED")
+core:RegisterEvent("QUEST_TURNED_IN")
 core:SetScript("OnEvent", function(self, event, ...)
     if event == "CHAT_MSG_ADDON" then
         local prefix, message = ...
         ReceiveRelay(prefix, message)
+        return
+    end
+
+    if event == "QUEST_LOG_UPDATE" or event == "QUEST_ACCEPTED" or event == "QUEST_TURNED_IN" then
+        if MunkeHubDB then MunkeHubDB.questJSON = BuildQuestJSON() end
         return
     end
 
@@ -359,6 +422,7 @@ core:SetScript("OnEvent", function(self, event, ...)
             MunkeHubDB.syncJSON = BuildSyncJSON(true)
             MunkeHubDB.detailJSON = BuildDetailJSON()
             MunkeHubDB.bagsJSON = BuildBagsJSON()
+            MunkeHubDB.questJSON = BuildQuestJSON()
         end
         -- played time is async: ask for it, TIME_PLAYED_MSG fills it in
         if RequestTimePlayed then RequestTimePlayed() end
