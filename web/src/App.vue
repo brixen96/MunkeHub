@@ -465,6 +465,43 @@
               </div>
             </div>
 
+            <!-- MunkeHub AI advisor -->
+            <div class="ah-advisor">
+              <div class="ah-adv-head">
+                <h3>🐒 MunkeHub AI</h3>
+                <button class="chip" :disabled="ahAdviceLoading"
+                        @click="loadAdvice(true)">
+                  {{ ahAdviceLoading ? "Thinking…" : "↻ Refresh advice" }}
+                </button>
+              </div>
+              <p v-if="ahAdviceError" class="error">{{ ahAdviceError }}</p>
+              <p v-else-if="!ahAdvice" class="muted">Asking the AI…</p>
+              <template v-else>
+                <p class="ah-adv-summary">{{ ahAdvice.summary }}</p>
+                <div class="ah-adv-cols">
+                  <div class="ah-adv-col">
+                    <h4>💰 Sell</h4>
+                    <ul><li v-for="(r, i) in ahAdvice.sell" :key="i">
+                      <b>{{ r.item }}</b> — {{ r.why }}</li></ul>
+                  </div>
+                  <div class="ah-adv-col">
+                    <h4>⛏ Farm</h4>
+                    <ul><li v-for="(r, i) in ahAdvice.farm" :key="i">
+                      <b>{{ r.item }}</b> — {{ r.why }}</li></ul>
+                  </div>
+                  <div class="ah-adv-col">
+                    <h4>🚫 Avoid</h4>
+                    <ul><li v-for="(r, i) in ahAdvice.avoid" :key="i">
+                      <b>{{ r.item }}</b> — {{ r.why }}</li></ul>
+                  </div>
+                </div>
+                <p class="ah-adv-mount">🐎 {{ ahAdvice.mount }}</p>
+                <p v-if="guildProfs.length" class="ah-adv-profs">
+                  Guild professions: {{ guildProfs.join(" · ") }}
+                </p>
+              </template>
+            </div>
+
             <!-- section selector -->
             <div class="guide-chips">
               <button v-for="s in ahSections" :key="s.id" class="chip"
@@ -495,7 +532,8 @@
                         <img :src="d.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
                         <a :href="wowheadItem(d.item_id)" data-wowhead="" target="_blank" rel="noopener">{{ d.name }}</a>
                       </td>
-                      <td class="num nowrap">{{ fmtMoney(d.minimum_ask_copper) }}</td>
+                      <td class="num nowrap">{{ fmtMoney(d.minimum_ask_copper) }}
+                        <span v-if="d.suspicious" class="ah-warn" :title="d.note">⚠️</span></td>
                       <td class="num nowrap muted">{{ fmtMoney(d.usual_copper) }}</td>
                       <td class="num ah-under">−{{ Math.round(d.discount * 100) }}%</td>
                       <td class="num">{{ fmtNum(d.possible_24h) }}</td>
@@ -532,7 +570,8 @@
                         <a :href="wowheadItem(s.item_id)" data-wowhead="" target="_blank" rel="noopener">{{ s.name }}</a>
                       </td>
                       <td class="num">{{ fmtNum(s.confirmed) }}</td>
-                      <td class="num nowrap ah-gold">{{ fmtMoney(s.confirmed_value) }}</td>
+                      <td class="num nowrap ah-gold">{{ fmtMoney(s.confirmed_value) }}
+                        <span v-if="s.suspicious" class="ah-warn" title="average price is skewed by a high listing">⚠️</span></td>
                       <td class="num nowrap muted">{{ fmtMoney(s.average_ask_copper) }}</td>
                       <td class="num nowrap">{{ fmtMoney(s.minimum_ask_copper) }}</td>
                     </tr>
@@ -572,7 +611,8 @@
                       </td>
                       <td class="num">{{ fmtNum(i.units) }} <span class="muted">({{ fmtNum(i.listings) }})</span></td>
                       <td class="num nowrap" :class="{ 'ah-below': i.below_vendor }">{{ fmtMoney(i.min_copper) }}</td>
-                      <td class="num nowrap muted">{{ fmtMoney(i.avg_copper) }}</td>
+                      <td class="num nowrap muted">{{ fmtMoney(i.avg_copper) }}
+                        <span v-if="i.suspicious" class="ah-warn" title="average is skewed — someone listed far too high">⚠️</span></td>
                       <td class="num">{{ fmtNum(i.sold_24h) }}</td>
                     </tr>
                   </tbody>
@@ -896,6 +936,10 @@ export default {
       ahCraftProf: "171",
       ahCraftProfs: [],
       ahStatus: null,
+      // MunkeHub AI advisor
+      ahAdvice: null,
+      ahAdviceLoading: false,
+      ahAdviceError: "",
       guildError: false,
       announcements: null,
       annError: false,
@@ -936,8 +980,9 @@ export default {
     } catch {
       this.apiVersion = "?";
     }
-    // Auction House: load the default section (deals) + overview.
+    // Auction House: load the default section (deals) + overview + AI advice.
     this.loadAh();
+    this.loadAdvice(false);
   },
   computed: {
     // Guides tab: only the profession picked in the chip selector shows.
@@ -964,6 +1009,17 @@ export default {
     },
     ahCraftRows() {
       return (this.ahCraft && this.ahCraft.recipes ? this.ahCraft.recipes : []).slice(0, 50);
+    },
+    // Union of every roster character's professions (synced by the addon).
+    guildProfs() {
+      const set = new Set();
+      (this.characters || []).forEach((c) => {
+        (c.professions || "").split(",").forEach((p) => {
+          p = p.trim();
+          if (p) set.add(p);
+        });
+      });
+      return [...set].sort();
     },
   },
   methods: {
@@ -994,6 +1050,21 @@ export default {
         this.ahSales = await api.ahSales(days);
       } catch {
         this.ahSales = null;
+      }
+    },
+    // MunkeHub AI advisor — cached 6h server-side; refresh=1 forces a new call.
+    async loadAdvice(refresh) {
+      this.ahAdviceLoading = true;
+      this.ahAdviceError = "";
+      try {
+        this.ahAdvice = await api.ahAdvice(refresh);
+      } catch (e) {
+        this.ahAdviceError =
+          String(e.message || e).includes("503")
+            ? "AI advisor not configured yet (server is missing its key)."
+            : "AI advisor unavailable right now — try Refresh.";
+      } finally {
+        this.ahAdviceLoading = false;
       }
     },
     async searchListings() {
@@ -2259,6 +2330,64 @@ details[open] > summary.guide-h4::after {
   font-size: 0.72rem;
   color: var(--muted);
   text-align: center;
+}
+/* MunkeHub AI advisor card */
+.ah-advisor {
+  background: rgba(200, 164, 77, 0.06);
+  border: 1px solid rgba(200, 164, 77, 0.35);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  margin-bottom: 1rem;
+}
+.ah-adv-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.ah-adv-head h3 {
+  margin: 0;
+  font-family: Georgia, serif;
+  font-size: 1rem;
+  color: var(--gold-bright);
+}
+.ah-adv-summary {
+  margin: 0.5rem 0 0.7rem;
+  font-size: 0.88rem;
+}
+.ah-adv-cols {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.9rem;
+}
+.ah-adv-col h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+}
+.ah-adv-col ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+}
+.ah-adv-col li {
+  margin-bottom: 0.3rem;
+}
+.ah-adv-mount {
+  margin: 0.8rem 0 0;
+  font-size: 0.85rem;
+  color: var(--gold-bright);
+}
+.ah-adv-profs {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.ah-warn {
+  cursor: help;
+  margin-left: 0.25rem;
 }
 .ah-credit a {
   color: var(--muted);

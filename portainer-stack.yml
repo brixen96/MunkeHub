@@ -20,6 +20,10 @@ services:
       # Admin token: used to mint per-member tokens (POST /api/v1/tokens).
       # CHANGE THIS to your own secret before deploying!
       - MUNKEHUB_ADMIN_TOKEN=LEsfAcdEfTMU1BMzx15quKliFbEoWJ6SOzEaLEDakeeYBIKexUfwwQqb2zSZbrhk
+      # MunkeHub AI advisor (OpenRouter) — powers /api/v1/ah/advice.
+      # Same key as the SeniaHub project; without it the advisor card shows
+      # "not configured" and everything else still works.
+      - OPENROUTER_API_KEY=CHANGE_ME_paste_your_openrouter_key_here
     volumes:
       - /mnt/NVMEShare/NVMEShare/gameservers/wow-munkeklubben/munkehub/data:/data
     restart: unless-stopped

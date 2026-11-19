@@ -2,6 +2,15 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.19",
+    date: "2026-11-19",
+    entries: [
+      "MunkeHub AI: the Auction House now has an AI advisor — what to sell, what to farm, what to avoid, and epic mount progress.",
+      "Suspicious prices are flagged with ⚠️ when someone listed far too high and skewed the averages.",
+      "Characters now sync their professions and gold (addon update needed for full data).",
+    ],
+  },
+  {
     version: "0.8.18",
     date: "2026-11-19",
     entries: [

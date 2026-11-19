@@ -311,13 +311,14 @@ func ahSummary(c *gin.Context, db *sql.DB) {
 	c.Data(http.StatusOK, "application/json", []byte(body))
 }
 
-// ahDeals serves the underpriced-now list (≥20% under the 7-day usual price).
+// ahDeals serves the underpriced-now list (≥20% under the 7-day usual price),
+// each row flagged when the deal may be an artifact of a bad listing.
 func ahDeals(c *gin.Context, db *sql.DB) {
 	body, ok := ahGet(c, db, "deals")
 	if !ok {
 		return
 	}
-	c.Data(http.StatusOK, "application/json", []byte(body))
+	c.Data(http.StatusOK, "application/json", ahFlagDeals([]byte(body)))
 }
 
 // ahSales serves best sellers for a window (days=1 or days=7).
@@ -331,29 +332,30 @@ func ahSales(c *gin.Context, db *sql.DB) {
 	if !ok {
 		return
 	}
-	c.Data(http.StatusOK, "application/json", []byte(body))
+	c.Data(http.StatusOK, "application/json", ahFlagSales([]byte(body)))
 }
 
 // ahItem is the lean projection of an upstream listing row — only the fields
 // the website shows, so a full-catalog search stays a small payload.
 type ahItem struct {
-	ID           int64   `json:"id"`
-	Name         string  `json:"name"`
-	Icon         string  `json:"icon"`
-	Quality      string  `json:"quality"`
-	ClassName    string  `json:"class_name"`
-	Subclass     string  `json:"subclass_name"`
-	Units        int64   `json:"units"`
-	Listings     int64   `json:"listings"`
-	ItemLevel    int     `json:"item_level"`
-	ReqLevel     int     `json:"required_level"`
-	Sold24h      int64   `json:"sold_24h"`
-	Possible24h  int64   `json:"possible_24h"`
-	AvgAsk       float64 `json:"avg_copper"`
-	MinAsk       float64 `json:"min_copper"`
-	Value24h     int64   `json:"value_24h"`
-	VendorSell   float64 `json:"vendor_copper"`
-	BelowVendor  bool    `json:"below_vendor"`
+	ID          int64   `json:"id"`
+	Name        string  `json:"name"`
+	Icon        string  `json:"icon"`
+	Quality     string  `json:"quality"`
+	ClassName   string  `json:"class_name"`
+	Subclass    string  `json:"subclass_name"`
+	Units       int64   `json:"units"`
+	Listings    int64   `json:"listings"`
+	ItemLevel   int     `json:"item_level"`
+	ReqLevel    int     `json:"required_level"`
+	Sold24h     int64   `json:"sold_24h"`
+	Possible24h int64   `json:"possible_24h"`
+	AvgAsk      float64 `json:"avg_copper"`
+	MinAsk      float64 `json:"min_copper"`
+	Value24h    int64   `json:"value_24h"`
+	VendorSell  float64 `json:"vendor_copper"`
+	BelowVendor bool    `json:"below_vendor"`
+	Suspicious  bool    `json:"suspicious"` // avg ≫ cheapest — price unreliable
 }
 
 // ahListingsPage is one cached /items page, reshaped into ahItem rows.
@@ -427,6 +429,8 @@ func ahListings(c *gin.Context, db *sql.DB) {
 				AvgAsk: it.AvgAsk, MinAsk: it.MinAsk, Value24h: it.Value24h,
 				VendorSell: it.VendorSell,
 				BelowVendor: it.VendorSell > 0 && it.MinAsk > 0 && it.MinAsk < it.VendorSell,
+				// avg ≫ cheapest → someone listed far too high; the average lies
+				Suspicious: it.MinAsk > 0 && it.AvgAsk > 3*it.MinAsk,
 			})
 		}
 	}

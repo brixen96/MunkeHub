@@ -1,4 +1,4 @@
--- MunkeHub v0.8.18 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.19 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -48,7 +48,37 @@ local function BlizzardID()
     return tonumber(hex, 16) or 0
 end
 
-local function BuildSyncJSON()
+-- Professions: primary 2 + cooking + fishing, comma-separated names.
+-- GetProfessions() -> prof1, prof2, archaeology, fishing, cooking;
+-- GetProfessionInfo(index) -> name, icon, skillLevel, ... (verified in
+-- RSProfessionDB.lua / QuestieTrace — bare globals exist in Forever).
+-- Feeds the guild profession list + the MunkeHub AI auction advisor.
+local function BuildProfessions()
+    if not GetProfessions then return "" end
+    local p1, p2, _, fishing, cooking = GetProfessions()
+    -- NOTE: build the index list manually — ipairs() stops at the first nil,
+    -- so a table constructor with holes would drop later professions.
+    local idxs = {}
+    if p1 then idxs[#idxs + 1] = p1 end
+    if p2 then idxs[#idxs + 1] = p2 end
+    if cooking then idxs[#idxs + 1] = cooking end
+    if fishing then idxs[#idxs + 1] = fishing end
+    local out = {}
+    for _, idx in ipairs(idxs) do
+        if GetProfessionInfo then
+            local name = GetProfessionInfo(idx)
+            if type(name) == "string" and name ~= "" then
+                out[#out + 1] = name
+            end
+        end
+    end
+    return table.concat(out, ",")
+end
+
+-- extras=true adds professions + gold (helper path always wants them).
+-- The relay path passes extras=false when the message would exceed the
+-- 240-byte addon limit — losing professions beats losing the whole relay.
+local function BuildSyncJSON(extras)
     local name = UnitName("player") or ""
     local lastName = LastName()
     local realm = GetRealmName() or ""
@@ -56,6 +86,7 @@ local function BuildSyncJSON()
     local race = UnitRace("player") or ""
     local class = select(2, UnitClass("player")) or ""
     local level = UnitLevel("player") or 0
+    local gold = GetMoney and GetMoney() or 0
     local ilvl = 0
     if GetAverageItemLevel then
         local overall = GetAverageItemLevel()
@@ -64,6 +95,12 @@ local function BuildSyncJSON()
     -- Manual JSON: values are game-provided strings, escape quotes/backslashes
     local function esc(s)
         return (tostring(s):gsub('[\\"]', function(c) return "\\" .. c end))
+    end
+    if extras then
+        return string.format(
+            '{"name":"%s","last_name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s,"bid":%d,"professions":"%s","gold":%d}',
+            esc(name), esc(lastName), esc(realm), esc(race), esc(class), level, tostring(ilvl), bid,
+            esc(BuildProfessions()), gold)
     end
     return string.format(
         '{"name":"%s","last_name":"%s","realm":"%s","race":"%s","class":"%s","level":%d,"ilvl":%s,"bid":%d}',
@@ -182,7 +219,7 @@ local function BuildDetailJSON()
 end
 
 local function SyncStats()
-    MunkeHubDB.syncJSON = BuildSyncJSON()
+    MunkeHubDB.syncJSON = BuildSyncJSON(true)
     MunkeHubDB.detailJSON = BuildDetailJSON()
     if RequestTimePlayed then RequestTimePlayed() end -- fills played via TIME_PLAYED_MSG
     Print("stats saved — the helper uploads them (or /reload to flush now).")
@@ -193,7 +230,10 @@ end
 -- ---------------------------------------------------------------------------
 local function BroadcastStats()
     if not C_ChatInfo or not IsInGuild() then return end
-    local msg = BuildSyncJSON()
+    -- full payload first (professions + gold), fall back to the plain one
+    -- if the message would exceed the WoW addon limit
+    local msg = BuildSyncJSON(true)
+    if #msg + #PREFIX > 240 then msg = BuildSyncJSON(false) end
     if #msg + #PREFIX > 240 then return end -- WoW addon message limit
     C_ChatInfo.SendAddonMessage(PREFIX, msg, "GUILD")
 end
@@ -261,7 +301,7 @@ core:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_ENTERING_WORLD" then
         -- silently refresh stats; WoW writes them to disk on /reload or logout
         if MunkeHubDB then
-            MunkeHubDB.syncJSON = BuildSyncJSON()
+            MunkeHubDB.syncJSON = BuildSyncJSON(true)
             MunkeHubDB.detailJSON = BuildDetailJSON()
         end
         -- played time is async: ask for it, TIME_PLAYED_MSG fills it in

@@ -9,7 +9,7 @@ async function get(path) {
 }
 
 // Bump on every release — shown in the footer so Emil can verify versions.
-export const WEB_VERSION = "0.8.18";
+export const WEB_VERSION = "0.8.19";
 
 export const api = {
   health: () => fetch("/health").then((r) => r.json()),
@@ -46,4 +46,6 @@ export const api = {
     ),
   ahCrafting: (profession = "171") => get(`/ah/crafting?profession=${profession}`),
   ahStatus: () => get("/ah/status"),
+  // MunkeHub AI advisor — cached 6h server-side; refresh=1 forces a new call.
+  ahAdvice: (refresh = false) => get(`/ah/advice${refresh ? "?refresh=1" : ""}`),
 };

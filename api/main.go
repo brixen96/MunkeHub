@@ -25,7 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.18"
+const version = "0.8.19"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -39,21 +39,23 @@ type Announcement struct {
 }
 
 type Character struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`      // first name — also the row key
-	LastName  string    `json:"last_name"`  // Forever surname (display only)
-	Realm     string    `json:"realm"`
-	Race      string    `json:"race"`
-	Class     string    `json:"class"`
-	Level     int       `json:"level"`
-	ILvl      float64   `json:"ilvl"`
-	Spec      string    `json:"spec"`
-	SpecIcon  int       `json:"spec_icon"` // spec icon texture fileID
-	Bid       int64     `json:"bid"`       // Blizzard character ID (3D render)
-	Zone      string    `json:"zone"`
-	Played    int       `json:"played"` // seconds
-	Detail    string    `json:"detail"` // gear JSON array (empty if not synced)
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`       // first name — also the row key
+	LastName    string    `json:"last_name"`  // Forever surname (display only)
+	Realm       string    `json:"realm"`
+	Race        string    `json:"race"`
+	Class       string    `json:"class"`
+	Level       int       `json:"level"`
+	ILvl        float64   `json:"ilvl"`
+	Spec        string    `json:"spec"`
+	SpecIcon    int       `json:"spec_icon"` // spec icon texture fileID
+	Bid         int64     `json:"bid"`       // Blizzard character ID (3D render)
+	Zone        string    `json:"zone"`
+	Played      int       `json:"played"`    // seconds
+	Professions string    `json:"professions"` // comma-separated names (Tailoring,Enchanting)
+	Gold        int64     `json:"gold"`      // copper — for the epic mount goal
+	Detail      string    `json:"detail"`    // gear JSON array (empty if not synced)
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func main() {
@@ -137,6 +139,10 @@ func main() {
 		api.GET("/ah/listings", func(c *gin.Context) { ahListings(c, db) })
 		api.GET("/ah/crafting", func(c *gin.Context) { ahCrafting(c, db) })
 		api.GET("/ah/status", func(c *gin.Context) { ahStatus(c, db) })
+
+		// MunkeHub AI advisor: cleaned market digest → OpenRouter → advice.
+		// Cached 6h; ?refresh=1 forces a new LLM call.
+		api.GET("/ah/advice", func(c *gin.Context) { ahAdviceHandler(c, db) })
 	}
 
 	// Auction House poller: refreshes the cache hourly, once shortly after boot.
@@ -178,6 +184,8 @@ func migrate(db *sql.DB) error {
 			bid        INTEGER NOT NULL DEFAULT 0,
 			zone       TEXT NOT NULL DEFAULT '',
 			played     INTEGER NOT NULL DEFAULT 0,
+			professions TEXT NOT NULL DEFAULT '',
+			gold       INTEGER NOT NULL DEFAULT 0,
 			detail     TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 			UNIQUE (name, realm)
@@ -201,6 +209,8 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE characters ADD COLUMN last_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE characters ADD COLUMN spec_icon INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE characters ADD COLUMN bid INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE characters ADD COLUMN professions TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE characters ADD COLUMN gold INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := db.Exec(alter); err != nil &&
 			!strings.Contains(err.Error(), "duplicate column") {
@@ -427,7 +437,8 @@ func createToken(c *gin.Context, db *sql.DB) {
 func listCharacters(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`
 		SELECT c.id, c.name, c.last_name, c.realm, c.race, c.class, c.level, c.ilvl,
-		       c.spec, c.spec_icon, c.bid, c.zone, c.played, c.detail, c.updated_at
+		       c.spec, c.spec_icon, c.bid, c.zone, c.played, c.professions, c.gold,
+		       c.detail, c.updated_at
 		FROM characters c
 		ORDER BY c.level DESC, c.name ASC`)
 	if err != nil {
@@ -441,7 +452,8 @@ func listCharacters(c *gin.Context, db *sql.DB) {
 		var ch Character
 		var updatedAt string
 		if err := rows.Scan(&ch.ID, &ch.Name, &ch.LastName, &ch.Realm, &ch.Race, &ch.Class,
-			&ch.Level, &ch.ILvl, &ch.Spec, &ch.SpecIcon, &ch.Bid, &ch.Zone, &ch.Played, &ch.Detail, &updatedAt); err != nil {
+			&ch.Level, &ch.ILvl, &ch.Spec, &ch.SpecIcon, &ch.Bid, &ch.Zone, &ch.Played,
+			&ch.Professions, &ch.Gold, &ch.Detail, &updatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -524,14 +536,16 @@ func guildStats(c *gin.Context, db *sql.DB) {
 }
 
 type charIn struct {
-	Name     string  `json:"name" binding:"required"`
-	LastName string  `json:"last_name"`
-	Realm    string  `json:"realm"`
-	Race     string  `json:"race"`
-	Class    string  `json:"class"`
-	Level    int     `json:"level"`
-	ILvl     float64 `json:"ilvl"`
-	Bid      int64   `json:"bid"`
+	Name        string  `json:"name" binding:"required"`
+	LastName    string  `json:"last_name"`
+	Realm       string  `json:"realm"`
+	Race        string  `json:"race"`
+	Class       string  `json:"class"`
+	Level       int     `json:"level"`
+	ILvl        float64 `json:"ilvl"`
+	Bid         int64   `json:"bid"`
+	Professions string  `json:"professions"` // comma-separated names
+	Gold        int64   `json:"gold"`        // copper
 }
 
 func upsertCharacter(c *gin.Context, db *sql.DB) {
@@ -550,15 +564,18 @@ func upsertCharacter(c *gin.Context, db *sql.DB) {
 
 func upsertChar(db *sql.DB, tokenID int64, in charIn) error {
 	_, err := db.Exec(`
-		INSERT INTO characters (token_id, name, last_name, realm, race, class, level, ilvl, bid, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		INSERT INTO characters (token_id, name, last_name, realm, race, class, level, ilvl, bid, professions, gold, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT (name, realm) DO UPDATE SET
 			token_id = excluded.token_id, last_name = excluded.last_name,
 			race = excluded.race,
 			class = excluded.class, level = excluded.level, ilvl = excluded.ilvl,
 			bid = excluded.bid,
+			professions = CASE WHEN excluded.professions != '' THEN excluded.professions ELSE characters.professions END,
+			gold = CASE WHEN excluded.gold > 0 THEN excluded.gold ELSE characters.gold END,
 			updated_at = datetime('now')`,
-		tokenID, in.Name, in.LastName, in.Realm, in.Race, in.Class, in.Level, in.ILvl, in.Bid)
+		tokenID, in.Name, in.LastName, in.Realm, in.Race, in.Class, in.Level, in.ILvl, in.Bid,
+		in.Professions, in.Gold)
 	return err
 }
 
