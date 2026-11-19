@@ -1,4 +1,4 @@
--- MunkeHub v0.8.22 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.23 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -15,6 +15,7 @@ local defaults = {
     syncJSON = "",   -- own stats payload (read by the helper)
     detailJSON = "", -- deep detail: spec/zone/gear (helper path ONLY — too big for relay)
     relayJSON = "",  -- relayed guild stats array (read by the helper)
+    bagsJSON = "",   -- bag contents aggregated by itemID (helper path ONLY)
 }
 
 local function Print(msg)
@@ -218,9 +219,45 @@ local function BuildDetailJSON()
         esc(name), esc(realm), esc(spec), specIcon, esc(zone), played, table.concat(gear, ","))
 end
 
+-- Bag contents aggregated by itemID: {"items":[{"id":12359,"n":40},...]}.
+-- C_Container is the Forever bag API (verified: Baganator/Syndicator use
+-- GetContainerNumSlots/GetContainerItemID the same way). Helper path ONLY —
+-- too big for the 240-byte relay. Powers the "My bags" auction value view.
+local function BuildBagsJSON()
+    if not C_Container or not C_Container.GetContainerNumSlots then return "" end
+    local counts = {}
+    local order = {}
+    for bagID = 0, 4 do -- 0 = backpack, 1-4 = bags
+        local slots = C_Container.GetContainerNumSlots(bagID)
+        for slot = 1, slots do
+            local itemID = C_Container.GetContainerItemID(bagID, slot)
+            if itemID and itemID > 0 then
+                local info = C_Container.GetContainerItemInfo(bagID, slot)
+                local n = (info and info.stackCount) or 1
+                if not counts[itemID] then
+                    counts[itemID] = 0
+                    order[#order + 1] = itemID
+                end
+                counts[itemID] = counts[itemID] + n
+            end
+        end
+    end
+    local parts = {}
+    for _, id in ipairs(order) do
+        parts[#parts + 1] = string.format('{"id":%d,"n":%d}', id, counts[id])
+    end
+    local name = UnitName("player") or ""
+    local realm = GetRealmName() or ""
+    return string.format('{"name":"%s","realm":"%s","items":[%s]}',
+        (name:gsub('[\\"]', function(c) return "\\" .. c end)),
+        (realm:gsub('[\\"]', function(c) return "\\" .. c end)),
+        table.concat(parts, ","))
+end
+
 local function SyncStats()
     MunkeHubDB.syncJSON = BuildSyncJSON(true)
     MunkeHubDB.detailJSON = BuildDetailJSON()
+    MunkeHubDB.bagsJSON = BuildBagsJSON()
     if RequestTimePlayed then RequestTimePlayed() end -- fills played via TIME_PLAYED_MSG
     Print("stats saved — the helper uploads them (or /reload to flush now).")
 end
@@ -303,6 +340,7 @@ core:SetScript("OnEvent", function(self, event, ...)
         if MunkeHubDB then
             MunkeHubDB.syncJSON = BuildSyncJSON(true)
             MunkeHubDB.detailJSON = BuildDetailJSON()
+            MunkeHubDB.bagsJSON = BuildBagsJSON()
         end
         -- played time is async: ask for it, TIME_PLAYED_MSG fills it in
         if RequestTimePlayed then RequestTimePlayed() end

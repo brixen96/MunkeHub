@@ -684,6 +684,46 @@
               </details>
             </div>
 
+            <!-- ---------- My bags ---------- -->
+            <div v-if="ahTab === 'bags'" class="guide">
+              <details class="gsec" open>
+                <summary class="guide-h4">
+                  My bags — gold sitting idle
+                </summary>
+                <p class="ah-note">
+                  <select v-model="ahBagsName" class="ah-select" @change="loadBags">
+                    <option v-for="c in characters" :key="c.id" :value="c.name">{{ fullName(c) }}</option>
+                  </select>
+                  <span v-if="ahBags">Total value: <b class="ah-gold">{{ fmtMoney(ahBags.total) }}</b>
+                    · scanned {{ fmtAgo(ahBags.updated_at) }}</span>
+                </p>
+                <p v-if="ahBagsError" class="muted">{{ ahBagsError }}</p>
+                <table v-else-if="ahBags" class="guide-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th><th class="num">Count</th>
+                      <th class="num">Cheapest</th><th class="num">Worth</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="b in ahBags.items" :key="b.item_id">
+                      <td class="ah-item">
+                        <img v-if="b.icon" :src="b.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
+                        <a v-if="b.tracked" :href="wowheadItem(b.item_id)" data-wowhead="" target="_blank" rel="noopener">{{ b.name }}</a>
+                        <span v-else class="muted">{{ b.name }} <span class="ah-sub">(no price)</span></span>
+                      </td>
+                      <td class="num">{{ fmtNum(b.count) }}</td>
+                      <td class="num nowrap">{{ b.tracked ? fmtMoney(b.min_copper) : "—" }}</td>
+                      <td class="num nowrap" :class="b.tracked ? 'ah-gold' : 'muted'">
+                        {{ b.tracked ? fmtMoney(b.value) : "—" }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p v-else class="muted">Loading…</p>
+              </details>
+            </div>
+
             <!-- ---------- Money makers ---------- -->
             <div v-if="ahTab === 'money'" class="guide">
               <details class="gsec" open>
@@ -1138,6 +1178,10 @@ export default {
       ahFarmProfs: [],
       // "only what WE can craft/farm" filter (Listings + Crafting chips)
       ahOnlyOurs: false,
+      // my bags (addon → helper → API, valued against the market)
+      ahBags: null,
+      ahBagsName: "",
+      ahBagsError: "",
       // crafting sort: "profit" (upstream default) | "roi" (profit × sold)
       ahCraftSort: "profit",
       guildError: false,
@@ -1199,6 +1243,7 @@ export default {
         { id: "crafting", name: "Crafting" },
         { id: "farm", name: "Farming" },
         { id: "money", name: "Money makers" },
+        { id: "bags", name: "My bags" },
         { id: "watch", name: `Watchlist${this.ahWatch.length ? " (" + this.ahWatch.length + ")" : ""}` },
       ];
     },
@@ -1293,7 +1338,28 @@ export default {
       if (id === "crafting" && !this.ahCraft) this.loadCrafting(this.ahCraftProf);
       if (id === "money" && !this.ahFlips.length && !this.ahSnipes.length) this.loadMoney();
       if (id === "farm" && !this.ahFarm.length) this.loadFarm();
+      if (id === "bags" && !this.ahBags) {
+        this.ahBagsName = this.ahBagsName || (this.characters[0] && this.characters[0].name) || "";
+        this.loadBags();
+      }
       if (id === "watch") this.loadWatch();
+    },
+    // Bag contents valued against the market (needs addon + helper running).
+    async loadBags() {
+      this.ahBagsError = "";
+      this.ahBags = null;
+      if (!this.ahBagsName) {
+        this.ahBagsError = "No character selected.";
+        return;
+      }
+      try {
+        this.ahBags = await api.ahBags(this.ahBagsName);
+      } catch (e) {
+        this.ahBags = null;
+        this.ahBagsError = String(e.message || e).includes("404")
+          ? "No bag data yet — /reload in-game, then wait for the helper to sync."
+          : "Could not load bags — try again.";
+      }
     },
     // Farming table: guild professions × market (server ranks by market/day).
     async loadFarm() {
@@ -2684,6 +2750,20 @@ details[open] > summary.guide-h4::after {
   max-width: 100%;
 }
 .ah-search:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+.ah-select {
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+  margin-right: 0.6rem;
+  padding: 0.3rem 0.5rem;
+}
+.ah-select:focus {
   outline: none;
   border-color: var(--gold);
 }

@@ -44,7 +44,7 @@ import (
 )
 
 // version MUST match helperVersion in api/main.go.
-const version = "0.7.1"
+const version = "0.7.2"
 
 // Matches ["syncJSON"]="..." or syncJSON="..." in the SavedVariables file.
 var syncRe = regexp.MustCompile(`\[?"syncJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
@@ -54,6 +54,9 @@ var relayRe = regexp.MustCompile(`\[?"relayJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
 
 // Matches ["detailJSON"]="..." (spec/zone/gear detail for expandable rows).
 var detailRe = regexp.MustCompile(`\[?"detailJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
+
+// Matches ["bagsJSON"]="..." (bag contents aggregated by itemID).
+var bagsRe = regexp.MustCompile(`\[?"bagsJSON"?\]\s*=\s*"((?:\\.|[^"\\])*)"`)
 
 const defaultGlob = `C:\Program Files (x86)\World of Warcraft\_forever_\WTF\Account\*\SavedVariables\MunkeHub.lua`
 
@@ -490,6 +493,14 @@ func main() {
 		if detail, err := extractField(content, detailRe, "detailJSON"); err == nil && strings.TrimSpace(detail) != "" {
 			if err := post(*apiURL, *token, "/api/v1/characters/detail", detail); err != nil {
 				logf("detail error: %v", err)
+				return
+			}
+		}
+
+		// 4. Own bag contents (auction value view) — helper path only
+		if bags, err := extractField(content, bagsRe, "bagsJSON"); err == nil && strings.TrimSpace(bags) != "" {
+			if err := post(*apiURL, *token, "/api/v1/characters/bags", bags); err != nil {
+				logf("bags error: %v", err)
 				return
 			}
 		}

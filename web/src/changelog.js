@@ -2,6 +2,14 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.23",
+    date: "2026-11-19",
+    entries: [
+      "Auction House: My bags — see what's sitting idle in your bags and what it's worth at today's prices (needs the addon + helper).",
+      "Helper 0.7.2: uploads bag contents — updates itself automatically.",
+    ],
+  },
+  {
     version: "0.8.22",
     date: "2026-11-19",
     entries: [

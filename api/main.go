@@ -25,11 +25,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.22"
+const version = "0.8.23"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
-const helperVersion = "0.7.1"
+const helperVersion = "0.7.2"
 
 type Announcement struct {
 	ID        int64     `json:"id"`
@@ -101,6 +101,10 @@ func main() {
 
 		// Character detail (spec/zone/gear) — helper path only
 		api.POST("/characters/detail", requireToken(db), func(c *gin.Context) { upsertDetail(c, db) })
+
+		// Bag contents (helper path only) + valued view for the website
+		api.POST("/characters/bags", requireToken(db), func(c *gin.Context) { upsertBags(c, db) })
+		api.GET("/ah/bags", func(c *gin.Context) { ahBags(c, db) })
 
 		// Dashboard stats
 		api.GET("/stats", func(c *gin.Context) { guildStats(c, db) })
@@ -223,6 +227,13 @@ func migrate(db *sql.DB) error {
 			name     TEXT NOT NULL,
 			icon     TEXT NOT NULL DEFAULT '',
 			added_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE IF NOT EXISTS bags (
+			name       TEXT NOT NULL,
+			realm      TEXT NOT NULL DEFAULT '',
+			body       TEXT NOT NULL,
+			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (name, realm)
 		);`)
 	if err != nil {
 		return err
