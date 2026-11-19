@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.15",
+    date: "2026-11-19",
+    entries: [
+      "New Guides tab: Cooking 1-300 profession guide — ranks, shopping lists, leveling route, trainers (Alliance + Horde).",
+    ],
+  },
+  {
     version: "0.8.14",
     date: "2026-11-19",
     entries: [

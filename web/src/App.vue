@@ -29,6 +29,9 @@
         <button :class="{ active: tab === 'news' }" @click="tab = 'news'">
           Announcements
         </button>
+        <button :class="{ active: tab === 'guides' }" @click="tab = 'guides'">
+          Guides
+        </button>
         <button :class="{ active: tab === 'changelog' }" @click="tab = 'changelog'">
           Changelog
         </button>
@@ -244,6 +247,139 @@
         </div>
       </section>
 
+      <!-- ================= GUIDES ================= -->
+      <section v-show="tab === 'guides'">
+        <div class="panel">
+          <h2 class="panel-title">Profession Guides <span class="hint">— WoW: Forever</span></h2>
+          <div v-for="g in guides" :key="g.id" class="guide">
+            <div class="guide-head">
+              <img class="guide-icon" :src="'/api/v1/icon/' + g.icon" alt=""
+                   loading="lazy" @error="$event.target.style.display = 'none'">
+              <div>
+                <h3 class="guide-title">{{ g.name }} 1-300</h3>
+                <p class="guide-blurb">{{ g.blurb }}</p>
+              </div>
+            </div>
+
+            <!-- ranks -->
+            <h4 class="guide-h4">Training & Ranks</h4>
+            <table class="guide-table">
+              <thead>
+                <tr><th>Rank</th><th>Skill range</th><th>Skill needed</th><th>Level</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in g.ranks" :key="r.rank">
+                  <td>{{ r.rank }}</td><td>{{ r.range }}</td>
+                  <td>{{ r.skill }}</td><td>{{ r.level }}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- shopping list -->
+            <h4 class="guide-h4">Shopping List</h4>
+            <div class="shop-grid">
+              <div v-for="s in g.shopping" :key="s.range" class="shop-card">
+                <span class="shop-range">{{ s.range }}</span>
+                <ul class="shop-list">
+                  <li v-for="it in s.items" :key="it.id">
+                    <b>{{ it.qty }}×</b>
+                    <a :href="wowheadItem(it.id)" data-wowhead="" target="_blank" rel="noopener">{{ it.name }}</a>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- leveling steps -->
+            <h4 class="guide-h4">Leveling Route</h4>
+            <div v-for="st in g.steps" :key="st.range" class="step">
+              <div class="step-head">{{ st.range }}</div>
+              <p v-if="st.note" class="step-note">{{ st.note }}</p>
+              <table class="guide-table">
+                <thead>
+                  <tr><th>Skill</th><th>Qty</th><th>Craft</th><th>Reagents</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in st.rows" :key="row.skill">
+                    <td class="nowrap">{{ row.skill }}</td>
+                    <td class="nowrap">{{ row.qty }}</td>
+                    <td>
+                      <a :href="wowheadItem(row.craft.id)" data-wowhead="" target="_blank" rel="noopener">{{ row.craft.name }}</a>
+                    </td>
+                    <td>
+                      <span v-for="(rg, i) in row.reagents" :key="rg.id">
+                        <span v-if="i"> · </span>
+                        <b>{{ rg.qty }}×</b>
+                        <a :href="wowheadItem(rg.id)" data-wowhead="" target="_blank" rel="noopener">{{ rg.name }}</a>
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- notable items -->
+            <template v-if="g.items && g.items.length">
+              <h4 class="guide-h4">Worth Knowing</h4>
+              <ul class="guide-notes">
+                <li v-for="it in g.items" :key="it.id">
+                  <a :href="wowheadItem(it.id)" data-wowhead="" target="_blank" rel="noopener">{{ it.name }}</a>
+                  — {{ it.note }}
+                </li>
+              </ul>
+            </template>
+
+            <!-- trainers -->
+            <h4 class="guide-h4">Trainers</h4>
+            <div class="trainer-cols">
+              <div>
+                <h5 class="trainer-h5">Alliance — Apprentice / Journeyman</h5>
+                <table class="guide-table">
+                  <tbody>
+                    <tr v-for="t in g.trainers.alliance.basic" :key="t.name">
+                      <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <h5 class="trainer-h5">Alliance — Expert (book vendor)</h5>
+                <table class="guide-table">
+                  <tbody>
+                    <tr v-for="t in g.trainers.alliance.expert" :key="t.name">
+                      <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <h5 class="trainer-h5">Horde — Apprentice / Journeyman</h5>
+                <table class="guide-table">
+                  <tbody>
+                    <tr v-for="t in g.trainers.horde.basic" :key="t.name">
+                      <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <h5 class="trainer-h5">Horde — Expert (book vendor)</h5>
+                <table class="guide-table">
+                  <tbody>
+                    <tr v-for="t in g.trainers.horde.expert" :key="t.name">
+                      <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <h5 class="trainer-h5">Artisan (quest — both factions)</h5>
+            <table class="guide-table">
+              <tbody>
+                <tr v-for="t in g.trainers.artisan" :key="t.name">
+                  <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- ================= ANNOUNCEMENTS ================= -->
       <section v-show="tab === 'news'">
         <div class="panel">
@@ -425,6 +561,7 @@
 <script>
 import { api, WEB_VERSION } from "./api";
 import { CHANGELOG } from "./changelog";
+import { GUIDES } from "./guides";
 
 // WoW class colours — iconic, instantly readable for players
 const CLASS_COLORS = {
@@ -490,6 +627,7 @@ export default {
       webVersion: WEB_VERSION,
       apiVersion: "",
       changelog: CHANGELOG,
+      guides: GUIDES,
       guildError: false,
       announcements: null,
       annError: false,
@@ -609,6 +747,9 @@ export default {
     },
     wowheadUrl(g) {
       return "https://www.wowhead.com/forever/item=" + g.id;
+    },
+    wowheadItem(id) {
+      return "https://www.wowhead.com/forever/item=" + id;
     },
     // --- talents tab -------------------------------------------------------
     setSheetTab(c, t) {
@@ -1549,6 +1690,173 @@ main {
   background: linear-gradient(145deg, rgb(247, 226, 173), rgb(176, 138, 74) 45%, rgb(111, 79, 39));
   box-shadow: 0 0 0 1px #000, 0 0 10px rgba(247, 226, 173, 0.45);
 }
+/* --- Guides section --- */
+.guide {
+  border-top: 1px solid var(--edge);
+  padding-top: 1.1rem;
+  margin-top: 1.1rem;
+}
+.guide:first-of-type {
+  border-top: 0;
+  margin-top: 0.3rem;
+  padding-top: 0;
+}
+.guide-head {
+  display: flex;
+  gap: 0.9rem;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+.guide-icon {
+  width: 44px;
+  height: 44px;
+  border: 2px solid var(--gold);
+  border-radius: 6px;
+  background: #0e0d11;
+  padding: 2px;
+}
+.guide-title {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--gold-bright);
+}
+.guide-blurb {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.guide-h4 {
+  margin: 1.1rem 0 0.5rem;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+}
+.guide-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.guide-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--edge);
+}
+.guide-table td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid rgba(58, 56, 64, 0.5);
+}
+.guide-table a {
+  color: var(--ink);
+}
+.guide-table a:hover {
+  color: var(--gold-bright);
+}
+.nowrap {
+  white-space: nowrap;
+}
+.coords {
+  color: var(--muted);
+  font-family: Consolas, monospace;
+  font-size: 0.78rem;
+}
+/* shopping list cards */
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.7rem;
+}
+.shop-card {
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+}
+.shop-range {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--gold-bright);
+  background: rgba(200, 164, 77, 0.12);
+  border: 1px solid rgba(200, 164, 77, 0.4);
+  border-radius: 4px;
+  padding: 0.1rem 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.shop-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.82rem;
+}
+.shop-list li {
+  padding: 0.15rem 0;
+}
+.shop-list b {
+  color: var(--gold-bright);
+  font-weight: 700;
+}
+.shop-list a {
+  color: var(--ink);
+}
+.shop-list a:hover {
+  color: var(--gold-bright);
+}
+/* leveling steps */
+.step {
+  margin-bottom: 0.9rem;
+}
+.step-head {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #ffe2a6;
+  background: rgba(247, 226, 173, 0.1);
+  border: 1px solid rgba(247, 226, 173, 0.35);
+  border-radius: 4px;
+  padding: 0.15rem 0.7rem;
+  margin-bottom: 0.4rem;
+}
+.step-note {
+  margin: 0 0 0.5rem;
+  font-size: 0.83rem;
+  color: var(--muted);
+}
+.guide-notes {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+}
+.guide-notes li {
+  margin-bottom: 0.3rem;
+}
+.guide-notes a {
+  color: var(--ink);
+}
+.guide-notes a:hover {
+  color: var(--gold-bright);
+}
+/* trainer columns */
+.trainer-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+}
+.trainer-h5 {
+  margin: 0.7rem 0 0.35rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+.trainer-cols .trainer-h5:first-child {
+  margin-top: 0;
+}
+
 /* rank badge: bottom-right, overlapping the icon */
 .tal .rk {
   position: absolute;
