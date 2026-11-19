@@ -671,6 +671,22 @@
           </div>
           <p v-else-if="questAdviceError" class="error">{{ questAdviceError }}</p>
 
+          <!-- where to go: leveling route for this level (Tier 2) -->
+          <div v-if="levelRoute && levelRoute.length" class="route-card">
+            <h3 class="quest-h3">🗺 Where to go next</h3>
+            <div v-for="(b, bi) in levelRoute" :key="bi" class="route-row">
+              <span class="route-lvl">{{ b.min }}–{{ b.max }}</span>
+              <div class="route-body">
+                <span class="route-zones">{{ b.zones.join(' · ') }}</span>
+                <span v-if="b.dungeons && b.dungeons.length" class="route-dungeons">
+                  🏰 {{ b.dungeons.join(' · ') }}
+                </span>
+                <span v-if="b.note" class="route-note">{{ b.note }}</span>
+              </div>
+            </div>
+            <p class="route-src">Route facts from community leveling guides (see guides.md) — zones only, no copied text.</p>
+          </div>
+
           <!-- quest log -->
           <template v-if="quests && quests.quests.length">
             <h3 class="quest-h3">Quest log</h3>
@@ -1587,6 +1603,7 @@ export default {
       questAdvice: null, // {summary, next, turn_in, do_now, avoid}
       questAdviceLoading: false,
       questAdviceError: "",
+      levelRoute: null, // leveling brackets for the selected char's level
       // buy list cart (aggregated shopping list minus bags)
       cartOpen: false,
       // --- Auction House tab ---
@@ -2283,6 +2300,17 @@ export default {
           String(e).includes("404")
             ? "No quest log synced yet for this character — /reload in game."
             : "Could not load the quest log.";
+      }
+      // leveling route for this level + race (facts, no AI)
+      this.levelRoute = null;
+      if (this.quests) {
+        const ch = (this.characters || []).find((c) => c.name === this.questName);
+        try {
+          const r = await api.leveling(this.quests.level, ch ? ch.race : "");
+          this.levelRoute = r.brackets || [];
+        } catch {
+          this.levelRoute = [];
+        }
       }
       // advice loads lazily with the log (cached 1h server-side)
       this.loadQuestAdvice(false);
@@ -3397,6 +3425,39 @@ main {
 }
 .qc-fill { height: 100%; background: var(--gold); }
 .qc-obj.done .qc-fill { background: #7fd18a; }
+
+/* where to go: leveling route brackets */
+.route-card {
+  background: var(--stone);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  margin-bottom: 1rem;
+}
+.route-row {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(58, 56, 64, 0.5);
+  align-items: start;
+}
+.route-row:last-of-type { border-bottom: 0; }
+.route-lvl {
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--gold-bright);
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  text-align: center;
+  padding: 0.1rem 0.2rem;
+}
+.route-body { display: flex; flex-direction: column; gap: 0.15rem; }
+.route-zones { font-size: 0.9rem; font-weight: 600; }
+.route-dungeons { font-size: 0.78rem; color: var(--muted); }
+.route-note { font-size: 0.78rem; color: #7fd18a; }
+.route-src { font-size: 0.7rem; color: var(--muted); margin-top: 0.5rem; }
 
 /* roster tools: search + filters + copy */
 .roster-tools {

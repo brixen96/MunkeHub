@@ -53,6 +53,7 @@ type questLogIn struct {
 	Name    string       `json:"name" binding:"required"`
 	Realm   string       `json:"realm"`
 	Level   int          `json:"level"`
+	Race    string       `json:"race"`
 	Quests  []questEntry `json:"quests"`
 }
 
@@ -169,12 +170,14 @@ type questAdviceItem struct {
 	Why   string `json:"why"`
 }
 
-// questDigest is what the model sees: the character, their log, and what's
-// already in their bags.
+// questDigest is what the model sees: the character, their log, what's
+// already in their bags, and the leveling route for their level (Tier 2).
 type questDigest struct {
-	Level   int          `json:"level"`
-	Quests  []questEntry `json:"quests"`
-	InBags  []string     `json:"quest_items_in_bags"`
+	Level   int               `json:"level"`
+	Race    string            `json:"race,omitempty"`
+	Quests  []questEntry      `json:"quests"`
+	InBags  []string          `json:"quest_items_in_bags"`
+	Route   []levelingBracket `json:"leveling_route,omitempty"`
 }
 
 func buildQuestDigest(db *sql.DB, name string) (questDigest, error) {
@@ -189,7 +192,11 @@ func buildQuestDigest(db *sql.DB, name string) (questDigest, error) {
 	if err := json.Unmarshal([]byte(body), &log); err != nil {
 		return questDigest{}, fmt.Errorf("bad quest log body")
 	}
-	d := questDigest{Level: log.Level, Quests: log.Quests}
+	d := questDigest{Level: log.Level, Race: log.Race, Quests: log.Quests}
+
+	// leveling route for this level (facts from guides.md sources) — lets the
+	// advisor answer "my log is empty, where do I go?" with real zones
+	d.Route = routeFor(log.Level, log.Race)
 
 	// which quest items are already sitting in bags (helps "you can turn in now")
 	bags := bagCountsFor(db, name)
@@ -237,13 +244,14 @@ func refreshQuestAdvice(db *sql.DB, name string) (json.RawMessage, error) {
 	}
 
 	system := `You are the MunkeHub quest advisor for WoW: Forever (vanilla-style, level cap 60).
-You get a character's quest log (title, level, tag, objectives with progress) and which quest items are already in their bags.
+You get a character's quest log (title, level, tag, objectives with progress), which quest items are already in their bags, and their leveling route (zone brackets scraped from community leveling guides — real zones for their level and race).
 
 Rules:
 - "next" = the single best quest to do next, chosen from their log. Consider level fit (quests near their level give good XP; grey quests give almost none), location flow, and whether objectives are already partly done.
 - "turn_in" = quests whose objectives are all complete (or whose items are already in bags) — turn these in first.
 - "do_now" = quests worth progressing now (2-4).
 - "avoid" = quests to skip or defer: grey/low-level XP waste, group-only (Group/Raid tags) while solo, escort chains that waste time, or objectives needing items they don't have. If nothing should be avoided, return an empty array.
+- If their quest log is empty or nearly empty, use leveling_route to say where to go next: name the zone(s) from the route bracket matching their level. If the log has plenty of quests, the route is context only.
 - Quest titles are the source of truth. Use vanilla WoW knowledge for zones and follow-ups. If a quest title looks custom to WoW: Forever and you don't know it, say so in "why" instead of inventing details.
 - Keep every "why" under 16 words, plain English.
 - Answer ONLY with this JSON shape:

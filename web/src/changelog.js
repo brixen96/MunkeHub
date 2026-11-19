@@ -2,6 +2,14 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.28",
+    date: "2026-11-19",
+    entries: [
+      "Quests: 'Where to go next' — zone route for your level and race, from community leveling guides (zones only, facts only).",
+      "Quest Helper AI now knows the leveling route, so it can tell you where to head when your quest log is empty.",
+    ],
+  },
+  {
     version: "0.8.27",
     date: "2026-11-19",
     entries: [

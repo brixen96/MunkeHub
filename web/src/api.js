@@ -9,7 +9,7 @@ async function get(path) {
 }
 
 // Bump on every release — shown in the footer so Emil can verify versions.
-export const WEB_VERSION = "0.8.27";
+export const WEB_VERSION = "0.8.28";
 
 export const api = {
   health: () => fetch("/health").then((r) => r.json()),
@@ -71,6 +71,9 @@ export const api = {
   // AI quest advisor — cached 1h server-side; refresh=1 forces a new call.
   questAdvice: (name, refresh = false) =>
     get(`/quests/advice?name=${encodeURIComponent(name)}${refresh ? "&refresh=1" : ""}`),
+  // Leveling route brackets for a level + race (facts from guides.md sources).
+  leveling: (level, race) =>
+    get(`/leveling?level=${level}&race=${encodeURIComponent(race || "")}`),
   // Guild Board: crafting orders + events (reads public, writes member token).
   board: () => get("/board"),
   boardOrderAdd: (data, token) =>

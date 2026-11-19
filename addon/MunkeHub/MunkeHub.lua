@@ -1,4 +1,4 @@
--- MunkeHub v0.8.27 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.28 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -320,8 +320,9 @@ local function BuildQuestJSON()
     end
     local name = UnitName("player") or ""
     local realm = GetRealmName() or ""
-    return string.format('{"name":"%s","realm":"%s","level":%d,"quests":[%s]}',
-        esc(name), esc(realm), tonumber(UnitLevel("player")) or 0, table.concat(parts, ","))
+    local race = UnitRace("player") or ""
+    return string.format('{"name":"%s","realm":"%s","level":%d,"race":"%s","quests":[%s]}',
+        esc(name), esc(realm), tonumber(UnitLevel("player")) or 0, esc(race), table.concat(parts, ","))
 end
 
 local function SyncStats()
