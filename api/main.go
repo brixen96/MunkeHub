@@ -25,7 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.13"
+const version = "0.8.14"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -106,11 +106,13 @@ func main() {
 		// Item icons: lazy-fetched from wow.zamimg.com, cached forever on disk
 		api.GET("/icon/:name", func(c *gin.Context) { serveIcon(c) })
 
-		// 3D model: the character's model block + the wowhead modelviewer
-		// asset tree. Both upstreams send no CORS headers, so the browser
-		// gets them through us (assets cache forever, model data for 6h).
+		// 3D model + talents: the character's sheet (model block, talents,
+		// classId) and the wowhead modelviewer asset tree. Both upstreams
+		// send no CORS headers, so the browser gets them through us
+		// (assets cache forever, sheet data for 6h, layouts for 24h).
 		api.GET("/charmodel/:slug", func(c *gin.Context) { serveCharModel(c) })
 		api.GET("/mv/*path", func(c *gin.Context) { serveModelViewer(c) })
+		api.GET("/talents/:classId", func(c *gin.Context) { serveTalentLayout(c) })
 
 		// Generic setup package (NO token inside) for the website Download button
 		api.GET("/download", func(c *gin.Context) { serveDownload(c) })
@@ -719,10 +721,20 @@ func serveIcon(c *gin.Context) {
 // hyphen (WoW names are alphanumeric; apostrophe allowed just in case).
 var charModelRe = regexp.MustCompile(`^[A-Za-z0-9'-]+$`)
 
+// charSheet is what /charmodel returns: the 3D model block, the character's
+// talent build, and the classId (key for the per-class talent layout).
+type charSheet struct {
+	Model   json.RawMessage `json:"model"`
+	Talents json.RawMessage `json:"talents"`
+	ClassID int             `json:"classId"`
+}
+
 // serveCharModel proxies the armory's character API for the 3D model block
-// {race, gender, modelId, customizations, items}. Their API has no CORS
-// headers, so the browser can't fetch it directly. Cached 6h on disk; misses
-// are cached too ("notfound" marker) so unknown characters don't hammer them.
+// {race, gender, modelId, customizations, items} plus talents + classId.
+// Their API has no CORS headers, so the browser can't fetch it directly.
+// Cached 6h on disk; misses are cached too ("notfound" marker) so unknown
+// characters don't hammer them. Old cache files (bare model object, pre-0.8.14)
+// are detected and refetched.
 func serveCharModel(c *gin.Context) {
 	slug := c.Param("slug")
 	if !charModelRe.MatchString(slug) {
@@ -736,45 +748,54 @@ func serveCharModel(c *gin.Context) {
 	var stale []byte
 	if b, err := os.ReadFile(cache); err == nil {
 		if fi, err := os.Stat(cache); err == nil && time.Since(fi.ModTime()) < ttl {
-			c.Header("Cache-Control", "max-age=21600")
-			serveModelCache(c, b)
-			return
+			if serveSheetCache(c, b) {
+				return
+			}
+			// old format (bare model) — fall through and refetch
+		} else {
+			stale = b // expired — try a refresh, fall back to it if upstream fails
 		}
-		stale = b // expired — try a refresh, fall back to it if upstream fails
 	}
 
-	model, status, err := fetchCharModel(slug)
+	sheet, status, err := fetchCharSheet(slug)
 	if err != nil {
-		if stale != nil {
-			serveModelCache(c, stale) // armory down — stale beats broken
-			return
+		if stale != nil && serveSheetCache(c, stale) {
+			return // armory down — stale beats broken
 		}
 		c.JSON(http.StatusBadGateway, gin.H{"error": "armory unreachable"})
 		return
 	}
-	if status == http.StatusNotFound || model == nil {
+	if status == http.StatusNotFound || sheet == nil {
 		writeModelCache(cache, []byte(`{"notfound":true}`))
 		c.JSON(http.StatusNotFound, gin.H{"error": "character not found on the armory"})
 		return
 	}
-	b, _ := json.Marshal(model)
+	b, _ := json.Marshal(sheet)
 	writeModelCache(cache, b)
 	c.Header("Cache-Control", "max-age=21600")
 	c.Data(http.StatusOK, "application/json", b)
 }
 
-func serveModelCache(c *gin.Context, b []byte) {
+// serveSheetCache writes a cached sheet. Returns false if the bytes are an
+// old-format cache (bare model object without the "model" key) — caller refetches.
+func serveSheetCache(c *gin.Context, b []byte) bool {
 	if bytes.Contains(b, []byte(`"notfound"`)) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "character not found on the armory"})
-		return
+		return true
 	}
+	var s charSheet
+	if err := json.Unmarshal(b, &s); err != nil || len(s.Model) == 0 {
+		return false
+	}
+	c.Header("Cache-Control", "max-age=21600")
 	c.Data(http.StatusOK, "application/json", b)
+	return true
 }
 
-// fetchCharModel asks the armory for one character and returns its "model"
-// block. Region is EU (all Munkeklubben chars); the realm slug in the URL is
-// ignored upstream — verified: any slug works, region must match.
-func fetchCharModel(slug string) (map[string]any, int, error) {
+// fetchCharSheet asks the armory for one character and returns its model
+// block + talents + classId. Region is EU (all Munkeklubben chars); the realm
+// slug in the URL is ignored upstream — verified: any slug works, region must match.
+func fetchCharSheet(slug string) (*charSheet, int, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest("GET",
 		"https://armorywowforever.com/api/character/forever/eu/pvp_rp/"+url.PathEscape(slug), nil)
@@ -798,7 +819,9 @@ func fetchCharModel(slug string) (map[string]any, int, error) {
 		return nil, 0, err
 	}
 	var full struct {
-		Model json.RawMessage `json:"model"`
+		Model   json.RawMessage `json:"model"`
+		Talents json.RawMessage `json:"talents"`
+		ClassID int             `json:"classId"`
 	}
 	if err := json.Unmarshal(body, &full); err != nil {
 		return nil, 0, err
@@ -806,11 +829,69 @@ func fetchCharModel(slug string) (map[string]any, int, error) {
 	if len(full.Model) == 0 || string(full.Model) == "null" {
 		return nil, http.StatusNotFound, nil
 	}
-	var m map[string]any
-	if err := json.Unmarshal(full.Model, &m); err != nil {
-		return nil, 0, err
+	return &charSheet{Model: full.Model, Talents: full.Talents, ClassID: full.ClassID}, http.StatusOK, nil
+}
+
+// classIDRe: 1–3 digits (WoW has < 30 classes).
+var classIDRe = regexp.MustCompile(`^[0-9]{1,3}$`)
+
+// serveTalentLayout proxies the armory's per-class talent tree layout:
+// grid positions, icons, max ranks and prereqs for every talent node.
+// Layouts are static per class — cached 24h on disk.
+func serveTalentLayout(c *gin.Context) {
+	id := c.Param("classId")
+	if !classIDRe.MatchString(id) {
+		c.String(http.StatusBadRequest, "bad class id")
+		return
 	}
-	return m, http.StatusOK, nil
+	dir := envOr("MUNKEHUB_TALENTS", "talents")
+	cache := filepath.Join(dir, id+".json")
+	const ttl = 24 * time.Hour
+
+	var stale []byte
+	if b, err := os.ReadFile(cache); err == nil {
+		if fi, err := os.Stat(cache); err == nil && time.Since(fi.ModTime()) < ttl {
+			c.Header("Cache-Control", "max-age=86400")
+			c.Data(http.StatusOK, "application/json", b)
+			return
+		}
+		stale = b
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("GET",
+		"https://armorywowforever.com/api/talents/forever/"+id+"?lang=en", nil)
+	if err != nil {
+		c.String(http.StatusBadGateway, "bad upstream")
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (MunkeHub)")
+	res, err := client.Do(req)
+	if err != nil {
+		if stale != nil {
+			c.Header("Cache-Control", "max-age=86400")
+			c.Data(http.StatusOK, "application/json", stale)
+			return
+		}
+		c.String(http.StatusBadGateway, "armory unreachable")
+		return
+	}
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 2<<20))
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || !json.Valid(body) {
+		if stale != nil {
+			c.Header("Cache-Control", "max-age=86400")
+			c.Data(http.StatusOK, "application/json", stale)
+			return
+		}
+		c.String(http.StatusBadGateway, "talent layout fetch failed")
+		return
+	}
+	if err := os.MkdirAll(dir, 0755); err == nil {
+		_ = os.WriteFile(cache, body, 0644)
+	}
+	c.Header("Cache-Control", "max-age=86400")
+	c.Data(http.StatusOK, "application/json", body)
 }
 
 func writeModelCache(path string, b []byte) {

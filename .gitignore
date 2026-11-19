@@ -7,10 +7,11 @@ node_modules/
 web/dist/
 web/devserver.log
 
-# API caches (icons + 3D model assets, lazy-fetched from upstreams)
+# API caches (icons + 3D model assets + talent layouts, lazy-fetched from upstreams)
 api/icons/
 api/mv/
 api/charmodels/
+api/talents/
 
 # Build logs
 build-push.log

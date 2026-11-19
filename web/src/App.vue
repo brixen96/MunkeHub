@@ -147,6 +147,14 @@
                           <span class="detail-v">{{ formatPlayed(c) }}</span>
                         </div>
                       </div>
+                      <!-- Character / Talents sub-tabs (armory style) -->
+                      <div class="sheet-tabs">
+                        <button :class="{ active: sheetTab[c.id] !== 'talents' }"
+                                @click="setSheetTab(c, 'char')">Character</button>
+                        <button :class="{ active: sheetTab[c.id] === 'talents' }"
+                                @click="setSheetTab(c, 'talents')">Talents</button>
+                      </div>
+                      <template v-if="sheetTab[c.id] !== 'talents'">
                       <div v-if="parseGear(c).length" class="paperdoll">
                         <div class="pd-col">
                           <div v-for="g in pdSlots(c, PD_LEFT)" :key="g.slot"
@@ -199,6 +207,34 @@
                       <p v-else class="muted small">
                         No gear detail yet — /reload in game, then the helper uploads it.
                       </p>
+                      </template>
+                      <!-- Talent trees (same look as armorywowforever.com) -->
+                      <div v-else class="talents-pane">
+                        <p v-if="talentState(c) === 'loading'" class="muted small">Loading talents…</p>
+                        <p v-else-if="talentState(c) === 'error'" class="error small">Could not load talents.</p>
+                        <p v-else-if="talentState(c) === 'empty'" class="muted small">
+                          No talent data for this character yet.
+                        </p>
+                        <div v-else class="trees">
+                          <div v-for="t in talentLayout(c)" :key="t.id" class="tree">
+                            <h3>{{ t.name }} <span>{{ treePoints(c, t) }}</span></h3>
+                            <div class="tal-grid" :style="gridStyle(t)">
+                              <i v-for="(ln, i) in connectorLinks(t)" :key="'ln' + i"
+                                 class="link" :style="ln"></i>
+                              <a v-for="n in t.talents" :key="n.id" class="tal"
+                                 :class="talentClass(c, t, n)" :style="talentPos(n)"
+                                 :href="talentUrl(n)" data-wowhead=""
+                                 target="_blank" rel="noopener" @click.stop>
+                                <img :src="talentIcon(n)" alt="" loading="lazy"
+                                     @error="$event.target.style.display = 'none'">
+                                <span v-if="talentRank(c, t, n) > 0" class="rk">
+                                  {{ talentRank(c, t, n) }}/{{ n.ranks.length }}
+                                </span>
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -443,6 +479,10 @@ export default {
       renderFailed: {},
       // char id -> 'loading' | 'ready' | 'static' (3D viewer state)
       viewerState: {},
+      // char id -> 'char' | 'talents' (sub-tab inside the detail panel)
+      sheetTab: {},
+      // char id -> {layout, talents} | {error} | {loading} (talents tab data)
+      talentData: {},
       tab: "roster",
       openRow: null,
       stats: null,
@@ -570,6 +610,121 @@ export default {
     wowheadUrl(g) {
       return "https://www.wowhead.com/forever/item=" + g.id;
     },
+    // --- talents tab -------------------------------------------------------
+    setSheetTab(c, t) {
+      const cur = this.sheetTab[c.id] || "char";
+      if (cur === t) return;
+      this.sheetTab = { ...this.sheetTab, [c.id]: t };
+      if (t === "talents") {
+        this.closeViewer(c.id); // hidden canvas must not keep rendering
+        this.loadTalents(c);
+      } else {
+        this.openViewer(c); // re-init: v-if destroyed the container
+      }
+    },
+    talentState(c) {
+      const d = this.talentData[c.id];
+      if (!d || d.loading) return "loading";
+      if (d.error) return "error";
+      if (d.empty || !d.layout || !d.talents || !Array.isArray(d.talents.trees)) {
+        return "empty";
+      }
+      return "ok";
+    },
+    async loadTalents(c) {
+      if (this.talentData[c.id]) return;
+      this.talentData = { ...this.talentData, [c.id]: { loading: true } };
+      try {
+        const slug = c.last_name ? c.name + "-" + c.last_name : c.name;
+        const sheet = await api.charModel(slug); // {model, talents, classId}
+        // talents = array of builds [{active, trees}] — use the active one
+        const builds = Array.isArray(sheet.talents) ? sheet.talents : sheet.talents ? [sheet.talents] : [];
+        const build = builds.find((b) => b && b.active) || builds[0];
+        if (!build || !Array.isArray(build.trees) || !sheet.classId) {
+          this.talentData = { ...this.talentData, [c.id]: { empty: true } };
+          return;
+        }
+        const layout = await api.talentLayout(sheet.classId);
+        this.talentData = { ...this.talentData, [c.id]: { layout, talents: build } };
+      } catch (err) {
+        console.warn("MunkeHub talents:", err);
+        this.talentData = { ...this.talentData, [c.id]: { error: true } };
+      }
+    },
+    talentLayout(c) {
+      const d = this.talentData[c.id];
+      return d && d.layout ? d.layout : null;
+    },
+    charTalentTree(c, layoutTree) {
+      const d = this.talentData[c.id];
+      if (!d || !d.talents) return null;
+      return (d.talents.trees || []).find((x) => x.id === layoutTree.id) || null;
+    },
+    treePoints(c, t) {
+      const tree = this.charTalentTree(c, t);
+      return tree ? tree.points : 0;
+    },
+    talentRank(c, t, n) {
+      const tree = this.charTalentTree(c, t);
+      if (!tree) return 0;
+      const tal = (tree.talents || []).find((x) => x.id === n.id);
+      return tal ? tal.rank : 0;
+    },
+    talentClass(c, t, n) {
+      const r = this.talentRank(c, t, n);
+      const max = n.ranks && n.ranks.length ? n.ranks.length : 1;
+      if (r <= 0) return "off";
+      return r >= max ? "max" : "part";
+    },
+    talentPos(n) {
+      return { left: n.col * 60 + "px", top: n.row * 60 + "px" };
+    },
+    talentUrl(n) {
+      const spell = n.ranks && n.ranks.length ? n.ranks[0] : 0;
+      return "https://www.wowhead.com/forever/spell=" + spell;
+    },
+    // Layout gives a Blizzard icon URL; route through our icon cache by
+    // texture name (zamimg, cached forever) instead of hotlinking.
+    talentIcon(n) {
+      if (!n.icon) return "";
+      const base = n.icon.split("/").pop().split("?")[0];
+      const name = base.replace(/\.(jpg|png|webp|gif)$/i, "");
+      return /^[a-z0-9_]+$/i.test(name) ? "/api/v1/icon/" + name : n.icon;
+    },
+    // Grid box sized to the tree's actual rows/cols (armory uses a fixed
+    // 4×7 grid; computing keeps odd trees centered).
+    gridStyle(tree) {
+      let mc = 0, mr = 0;
+      tree.talents.forEach((n) => {
+        if (n.col > mc) mc = n.col;
+        if (n.row > mr) mr = n.row;
+      });
+      return { width: (mc + 1) * 60 + "px", height: (mr + 1) * 60 + "px" };
+    },
+    // Connector lines from prereq → talent (same column/row only). The line
+    // spans the full gap, so consecutive edges merge into one long line —
+    // exactly how the armory renders them.
+    connectorLinks(tree) {
+      const byId = {};
+      tree.talents.forEach((n) => (byId[n.id] = n));
+      const out = [];
+      tree.talents.forEach((n) => {
+        const p = n.prereq && byId[n.prereq.id];
+        if (!p) return;
+        if (p.col === n.col && n.row > p.row) {
+          out.push(
+            `left:${p.col * 60 + 29}px;top:${p.row * 60 + 30}px;` +
+            `width:3px;height:${(n.row - p.row) * 60}px`
+          );
+        } else if (p.row === n.row && n.col > p.col) {
+          out.push(
+            `left:${p.col * 60 + 30}px;top:${p.row * 60 + 29}px;` +
+            `width:${(n.col - p.col) * 60}px;height:3px`
+          );
+        }
+      });
+      return out;
+    },
     // Icon chain: fileID (foreverdb) first — if that 404s (some items are
     // missing there), retry with the itemID (wowhead resolves the name).
     // Second failure = hide the img, keep the quality border.
@@ -629,7 +784,8 @@ export default {
         };
         await this.loadViewerScript();
         const slug = c.last_name ? c.name + "-" + c.last_name : c.name;
-        const model = await api.charModel(slug);
+        const sheet = await api.charModel(slug); // {model, talents, classId}
+        const model = sheet.model || {};
         if (this.openRow !== c.id || VIEWERS[c.id]) return;
         await this.$nextTick();
         const el = document.getElementById("mv-" + c.id);
@@ -1305,6 +1461,110 @@ main {
   justify-content: center;
   width: 100%;
   height: 100%;
+}
+
+/* --- Character / Talents sub-tabs --- */
+.sheet-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.9rem 0 0.8rem;
+  border-bottom: 1px solid var(--edge);
+  padding-bottom: 0.5rem;
+}
+.sheet-tabs button {
+  background: #14131a;
+  border: 1px solid var(--edge);
+  color: var(--muted);
+  padding: 0.35rem 1.1rem;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+}
+.sheet-tabs button:hover {
+  color: var(--ink);
+}
+.sheet-tabs button.active {
+  color: var(--gold-bright);
+  border-color: var(--gold);
+  background: #1d1b22;
+}
+
+/* --- Talent trees (armory look: gold/green/brown gradients) --- */
+.trees {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(265px, 1fr));
+  gap: 1.4rem;
+}
+.tree h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #fff;
+}
+.tree h3 span {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #ffe2a6;
+}
+.tal-grid {
+  position: relative;
+  margin: 0 auto;
+}
+/* connector lines between prereq and talent */
+.tal-grid .link {
+  position: absolute;
+  background: rgba(168, 188, 203, 0.25);
+  border-radius: 1px;
+}
+.tal {
+  position: absolute;
+  display: block;
+  box-sizing: border-box;
+  width: 43px;
+  height: 43px;
+  padding: 2px;
+  margin: 8.4px; /* centers the 43px box inside the 60px cell */
+  border-radius: 4px;
+  color: var(--ink);
+}
+.tal img {
+  display: block;
+  width: 39px;
+  height: 39px;
+  border-radius: 2px;
+}
+.tal.off {
+  background: linear-gradient(145deg, rgb(138, 114, 80), rgb(58, 43, 22));
+  box-shadow: 0 0 0 1px #0d0904, 0 3px 6px rgba(0, 0, 0, 0.45);
+}
+.tal.part {
+  background: linear-gradient(145deg, rgb(125, 255, 106), rgb(28, 138, 16));
+  box-shadow: 0 0 0 1px #000, 0 0 8px rgba(30, 255, 0, 0.35);
+}
+.tal.max {
+  background: linear-gradient(145deg, rgb(247, 226, 173), rgb(176, 138, 74) 45%, rgb(111, 79, 39));
+  box-shadow: 0 0 0 1px #000, 0 0 10px rgba(247, 226, 173, 0.45);
+}
+/* rank badge: bottom-right, overlapping the icon */
+.tal .rk {
+  position: absolute;
+  left: 22px;
+  top: 34px;
+  right: -7px;
+  bottom: -7px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 10px;
+  padding: 2px 4px;
+  background: #06141d;
+  color: #ffe2a6;
+  border: 1px solid #6f4f27;
+  border-radius: 3px;
+  white-space: nowrap;
 }
 
 /* square icon slots with quality border + ilvl badge (armory look) */

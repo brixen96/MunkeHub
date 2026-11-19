@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.14",
+    date: "2026-11-19",
+    entries: [
+      "New Talents tab: full talent trees with points, rank badges and spell tooltips on hover — same look as the armory.",
+    ],
+  },
+  {
     version: "0.8.13",
     date: "2026-11-18",
     entries: [

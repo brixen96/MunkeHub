@@ -14,8 +14,8 @@ COPY --from=build /munkehub-api .
 # exe for self-updates (build them first: scripts/build-download.ps1)
 COPY download/ ./download/
 COPY helper/ ./helper/
-# Cache dirs (icons + 3D model assets, lazy-fetched and persisted on disk)
-RUN mkdir -p /app/icons /app/mv /app/charmodels
+# Cache dirs (icons + 3D model assets + talent layouts, lazy-fetched and persisted on disk)
+RUN mkdir -p /app/icons /app/mv /app/charmodels /app/talents
 ENV MUNKEHUB_PORT=8080 \
     MUNKEHUB_DB=/data/munkehub.db
 VOLUME /data

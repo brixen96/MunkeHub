@@ -9,7 +9,7 @@ async function get(path) {
 }
 
 // Bump on every release — shown in the footer so Emil can verify versions.
-export const WEB_VERSION = "0.8.13";
+export const WEB_VERSION = "0.8.14";
 
 export const api = {
   health: () => fetch("/health").then((r) => r.json()),
@@ -29,7 +29,10 @@ export const api = {
     }),
   characters: () => get("/characters"),
   stats: () => get("/stats"),
-  // 3D model block {race, gender, modelId, customizations, items} — proxied
-  // from the armory's API (their site sends no CORS headers).
+  // Character sheet {model, talents, classId} — proxied from the armory's
+  // API (their site sends no CORS headers).
   charModel: (slug) => get("/charmodel/" + encodeURIComponent(slug)),
+  // Talent tree layout for a class (grid positions, icons, prereqs) —
+  // static per class, cached 24h server-side.
+  talentLayout: (classId) => get("/talents/" + classId),
 };
