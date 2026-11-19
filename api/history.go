@@ -157,6 +157,56 @@ func ahHistory(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"points": out})
 }
 
+// ahPrices serves current price + 7-day context for a batch of items in ONE
+// request — the Guides tab prices whole shopping lists with it (≤200 ids).
+// avg7 = mean of the daily minimums, the same "usual" idea the deals use.
+func ahPrices(c *gin.Context, db *sql.DB) {
+	var ids []int64
+	for _, s := range strings.Split(c.Query("ids"), ",") {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+			ids = append(ids, n)
+		}
+		if len(ids) >= 200 {
+			break
+		}
+	}
+	if len(ids) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ids required"})
+		return
+	}
+
+	listings := listingIndex(db)
+	hist := historyFor(db, ids)
+	out := map[string]gin.H{}
+	for _, id := range ids {
+		li, ok := listings[id]
+		if !ok {
+			continue // not in the tracked 2,000 — no price to show
+		}
+		key := strconv.FormatInt(id, 10)
+		row := gin.H{
+			"min":        li.MinAsk,
+			"avg":        li.AvgAsk,
+			"units":      li.Units,
+			"sold24h":    li.Sold24h,
+			"suspicious": li.Suspicious,
+		}
+		if pts := hist[key]; len(pts) > 0 {
+			var sum float64
+			for _, p := range pts {
+				sum += p.Min
+			}
+			row["avg7"] = sum / float64(len(pts))
+		}
+		out[key] = row
+	}
+	c.JSON(http.StatusOK, gin.H{"prices": out})
+}
+
 // --- watchlist --------------------------------------------------------------
 
 type watchRow struct {

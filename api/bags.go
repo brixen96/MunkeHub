@@ -66,8 +66,11 @@ type bagRow struct {
 // Query: ?name=First — the website passes the roster character to inspect.
 func ahBags(c *gin.Context, db *sql.DB) {
 	name := c.Query("name")
+
+	// No ?name= → merge every character's bags: the Guides tab asks
+	// "what materials do we already have lying around?" guild-wide.
 	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
+		ahBagsMerged(c, db)
 		return
 	}
 	var body string
@@ -117,4 +120,66 @@ func ahBags(c *gin.Context, db *sql.DB) {
 		"total":      total,
 		"updated_at": updatedAt,
 	})
+}
+
+type bagAggRow struct {
+	ItemID int64  `json:"item_id"`
+	Name   string `json:"name"`
+	Icon   string `json:"icon"`
+	Count  int    `json:"count"`
+	Chars  int    `json:"chars"` // how many characters carry it
+}
+
+// ahBagsMerged sums every stored bag scan — used by the Guides tab to mark
+// reagents the guild already has (shopping list: "we have 60 of these").
+func ahBagsMerged(c *gin.Context, db *sql.DB) {
+	rows, err := db.Query(`SELECT body FROM bags`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	type agg struct{ n, chars int }
+	byID := map[int64]*agg{}
+	chars := 0
+	for rows.Next() {
+		var body string
+		if rows.Scan(&body) != nil {
+			continue
+		}
+		var items []struct {
+			ID int64 `json:"id"`
+			N  int   `json:"n"`
+		}
+		if json.Unmarshal([]byte(body), &items) != nil {
+			continue
+		}
+		chars++
+		for _, it := range items {
+			a := byID[it.ID]
+			if a == nil {
+				a = &agg{}
+				byID[it.ID] = a
+			}
+			a.n += it.N
+			a.chars++
+		}
+	}
+
+	listings := listingIndex(db)
+	out := []bagAggRow{}
+	for id, a := range byID {
+		r := bagAggRow{ItemID: id, Count: a.n, Chars: a.chars}
+		if li, ok := listings[id]; ok {
+			r.Name = li.Name
+			r.Icon = li.Icon
+		} else {
+			r.Name = fmt.Sprintf("Item %d", id)
+		}
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Count > out[j].Count })
+
+	c.JSON(http.StatusOK, gin.H{"items": out, "characters": chars})
 }

@@ -2,6 +2,17 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.24",
+    date: "2026-11-19",
+    entries: [
+      "Guides: live auction prices — every shopping list and route shows today's cheapest price, and each tier totals what the full run will cost.",
+      "Guides: tick off tiers as you level — your progress is remembered in your browser.",
+      "Guides: shows who in the guild has the profession, and marks reagents we already have in our bags (✓).",
+      "Deal badges on reagents priced 20%+ under their 7-day average.",
+      "The site now uses the full width of your screen — guides, tables and the roster breathe.",
+    ],
+  },
+  {
     version: "0.8.23",
     date: "2026-11-19",
     entries: [

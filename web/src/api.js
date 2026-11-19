@@ -9,7 +9,7 @@ async function get(path) {
 }
 
 // Bump on every release — shown in the footer so Emil can verify versions.
-export const WEB_VERSION = "0.8.23";
+export const WEB_VERSION = "0.8.24";
 
 export const api = {
   health: () => fetch("/health").then((r) => r.json()),
@@ -58,6 +58,10 @@ export const api = {
   ahAdvice: (refresh = false) => get(`/ah/advice${refresh ? "?refresh=1" : ""}`),
   // Price history: batched sparkline points for up to 60 items.
   ahHistory: (ids) => get(`/ah/history?ids=${ids.join(",")}`),
+  // Current price + 7-day context for a batch (Guides tab shopping lists).
+  ahPrices: (ids) => get(`/ah/prices?ids=${ids.join(",")}`),
+  // Merged bag scans from every character (no ?name= → guild-wide).
+  ahBagsAll: () => get("/ah/bags"),
   // Guild watchlist (⭐) — friends-only site, no auth by design.
   ahWatchlist: () => get("/ah/watchlist"),
   ahWatchAdd: (id) =>

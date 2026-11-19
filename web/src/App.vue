@@ -252,184 +252,242 @@
 
       <!-- ================= GUIDES ================= -->
       <section v-show="tab === 'guides'">
-        <div class="panel">
+        <div class="panel guides-panel">
           <h2 class="panel-title">Profession Guides <span class="hint">— WoW: Forever</span></h2>
-          <!-- profession selector -->
-          <div class="guide-chips">
-            <button v-for="g in guides" :key="g.id" class="chip"
-                    :class="{ active: guideSel === g.id }"
-                    @click="guideSel = g.id">{{ g.name }}</button>
-          </div>
-          <div v-for="g in visibleGuides" :key="g.id" class="guide">
-            <div class="guide-head">
-              <img class="guide-icon" :src="'/api/v1/icon/' + g.icon" alt=""
-                   loading="lazy" @error="$event.target.style.display = 'none'">
-              <div>
-                <h3 class="guide-title">{{ g.name }} 1-300</h3>
-                <p class="guide-blurb">{{ g.blurb }}</p>
-              </div>
-            </div>
+          <div class="guides-layout">
+            <!-- profession rail (sticky on wide screens) -->
+            <nav class="guides-rail">
+              <button v-for="g in guides" :key="g.id" class="rail-item"
+                      :class="{ active: guideSel === g.id }"
+                      @click="selectGuide(g.id)">
+                <img class="rail-icon" :src="'/api/v1/icon/' + g.icon" alt=""
+                     loading="lazy" @error="$event.target.style.display = 'none'">
+                <span class="rail-name">{{ g.name }}</span>
+                <span v-if="guidePct(g)" class="rail-pct">{{ guidePct(g) }}%</span>
+              </button>
+            </nav>
 
-            <!-- ranks (only some guides have them) -->
-            <details v-if="g.ranks && g.ranks.length" class="gsec" open>
-              <summary class="guide-h4">Training & Ranks</summary>
-              <table class="guide-table">
-                <thead>
-                  <tr><th>Rank</th><th>Skill range</th><th>Skill needed</th><th>Level</th></tr>
-                </thead>
-                <tbody>
-                  <tr v-for="r in g.ranks" :key="r.rank">
-                    <td>{{ r.rank }}</td><td>{{ r.range }}</td>
-                    <td>{{ r.skill }}</td><td>{{ r.level }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </details>
+            <!-- guide content -->
+            <div class="guides-content">
+              <div v-for="g in visibleGuides" :key="g.id" class="guide">
+                <div class="guide-head">
+                  <img class="guide-icon" :src="'/api/v1/icon/' + g.icon" alt=""
+                       loading="lazy" @error="$event.target.style.display = 'none'">
+                  <div class="guide-headtext">
+                    <h3 class="guide-title">{{ g.name }} 1-300</h3>
+                    <p class="guide-blurb">{{ g.blurb }}</p>
+                  </div>
+                  <!-- progress tracker -->
+                  <div v-if="guideTiers(g).length" class="guide-progress">
+                    <div class="gp-bar"><div class="gp-fill" :style="{ width: guidePct(g) + '%' }"></div></div>
+                    <span class="gp-label">{{ guidePct(g) }}% done</span>
+                  </div>
+                </div>
 
-            <!-- shopping list -->
-            <details v-if="g.shopping && g.shopping.length" class="gsec" open>
-              <summary class="guide-h4">Shopping List</summary>
-              <div class="shop-grid">
-                <div v-for="s in g.shopping" :key="s.range" class="shop-card">
-                  <span class="shop-range">{{ s.range }}</span>
-                  <ul class="shop-list">
-                    <li v-for="(it, i) in s.items" :key="i">
-                      <b>{{ it.qty }}×</b>
-                      <a v-if="it.id" :href="wowheadItem(it.id)" data-wowhead="" target="_blank" rel="noopener">{{ it.name }}</a>
-                      <span v-else>{{ it.name }}</span>
+                <!-- guild crafters: who can help with this profession -->
+                <div v-if="guideCrafters(g).length" class="guide-crafters">
+                  <span class="gc-label">In the guild:</span>
+                  <span v-for="(c, ci) in guideCrafters(g)" :key="c.id" class="gc-name">
+                    <span v-if="ci">, </span>
+                    <b :style="{ color: classColor(c) }">{{ fullName(c) }}</b>
+                  </span>
+                </div>
+
+                <!-- ranks (only some guides have them) -->
+                <details v-if="g.ranks && g.ranks.length" class="gsec" open>
+                  <summary class="guide-h4">Training & Ranks</summary>
+                  <table class="guide-table">
+                    <thead>
+                      <tr><th>Rank</th><th>Skill range</th><th>Skill needed</th><th>Level</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="r in g.ranks" :key="r.rank">
+                        <td>{{ r.rank }}</td><td>{{ r.range }}</td>
+                        <td>{{ r.skill }}</td><td>{{ r.level }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </details>
+
+                <!-- shopping list: live prices + tier totals + bag marks -->
+                <details v-if="g.shopping && g.shopping.length" class="gsec" open>
+                  <summary class="guide-h4">Shopping List</summary>
+                  <div class="shop-grid">
+                    <div v-for="s in g.shopping" :key="s.range" class="shop-card">
+                      <div class="shop-cardhead">
+                        <label class="tier-check" :title="'Mark ' + s.range + ' as done'">
+                          <input type="checkbox" :checked="isTierDone(g, s.range)"
+                                 @change="toggleTier(g, s.range)">
+                          <span>{{ s.range }}</span>
+                        </label>
+                        <span v-if="tierTotal(s).sum" class="shop-total">
+                          ~{{ fmtMoney(tierTotal(s).sum) }}
+                          <span v-if="tierTotal(s).missing" class="shop-miss">+{{ tierTotal(s).missing }} unpriced</span>
+                        </span>
+                      </div>
+                      <ul class="shop-list">
+                        <li v-for="(it, i) in s.items" :key="i">
+                          <b>{{ it.qty }}×</b>
+                          <a v-if="it.id" :href="wowheadItem(it.id)" data-wowhead="" target="_blank" rel="noopener">{{ it.name }}</a>
+                          <span v-else>{{ it.name }}</span>
+                          <span v-if="it.id && priceOf(it.id)" class="shop-price">
+                            {{ fmtMoney(priceOf(it.id).min) }}
+                            <span v-if="dealPct(it.id)" class="ah-dealbadge">−{{ dealPct(it.id) }}%</span>
+                          </span>
+                          <span v-if="haveFull(it)" class="shop-have" title="Already in our bags">✓ have</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </details>
+
+                <!-- leveling steps (crafting professions) -->
+                <details v-if="g.steps && g.steps.length" class="gsec" open>
+                  <summary class="guide-h4">Leveling Route</summary>
+                  <div v-for="st in g.steps" :key="st.range" class="step">
+                    <div class="step-head">
+                      <label class="tier-check" :title="'Mark ' + st.range + ' as done'">
+                        <input type="checkbox" :checked="isTierDone(g, st.range)"
+                               @change="toggleTier(g, st.range)">
+                        <span>{{ st.range }}</span>
+                      </label>
+                    </div>
+                    <p v-if="st.note" class="step-note">{{ st.note }}</p>
+                    <table class="guide-table">
+                      <thead>
+                        <tr><th>Skill</th><th>Qty</th><th>Craft</th><th>Reagents</th></tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(row, ri) in st.rows" :key="ri">
+                          <td class="nowrap">{{ row.skill }}</td>
+                          <td class="nowrap">{{ row.qty }}</td>
+                          <td>
+                            <a v-if="row.craft.id" :href="wowheadLink(row.craft)" data-wowhead="" target="_blank" rel="noopener">{{ row.craft.name }}</a>
+                            <span v-else>{{ row.craft.name }}</span>
+                          </td>
+                          <td>
+                            <span v-for="(rg, i) in row.reagents" :key="i">
+                              <span v-if="i"> · </span>
+                              <b v-if="rg.qty">{{ rg.qty }}×</b>
+                              <a v-if="rg.id" :href="wowheadItem(rg.id)" data-wowhead="" target="_blank" rel="noopener">{{ rg.name }}</a>
+                              <span v-else>{{ rg.name }}</span>
+                              <span v-if="rg.id && priceOf(rg.id)" class="shop-price">
+                                {{ fmtMoney(priceOf(rg.id).min) }}
+                                <span v-if="dealPct(rg.id)" class="ah-dealbadge">−{{ dealPct(rg.id) }}%</span>
+                              </span>
+                              <span v-if="haveFull(rg)" class="shop-have" title="Already in our bags">✓</span>
+                            </span>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+
+                <!-- gathering route (mining/herbalism/skinning/fishing) -->
+                <details v-if="g.gathering && g.gathering.length" class="gsec" open>
+                  <summary class="guide-h4">Leveling Route</summary>
+                  <div v-for="st in g.gathering" :key="st.range" class="step">
+                    <div class="step-head">
+                      <label class="tier-check" :title="'Mark ' + st.range + ' as done'">
+                        <input type="checkbox" :checked="isTierDone(g, st.range)"
+                               @change="toggleTier(g, st.range)">
+                        <span>{{ st.range }}</span>
+                      </label>
+                    </div>
+                    <p v-if="st.note" class="step-note">{{ st.note }}</p>
+                    <table v-if="st.zones && st.zones.length" class="guide-table">
+                      <tbody>
+                        <tr v-for="(z, zi) in st.zones" :key="zi">
+                          <td v-for="(cell, ci) in z" :key="ci" :class="{ nowrap: ci === 0 }">{{ cell }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+
+                <!-- notable items -->
+                <details v-if="g.items && g.items.length" class="gsec" open>
+                  <summary class="guide-h4">Worth Knowing</summary>
+                  <ul class="guide-notes">
+                    <li v-for="it in g.items" :key="it.id">
+                      <a :href="wowheadItem(it.id)" data-wowhead="" target="_blank" rel="noopener">{{ it.name }}</a>
+                      — {{ it.note }}
+                      <span v-if="priceOf(it.id)" class="shop-price">{{ fmtMoney(priceOf(it.id).min) }}</span>
                     </li>
                   </ul>
-                </div>
-              </div>
-            </details>
+                </details>
 
-            <!-- leveling steps (crafting professions) -->
-            <details v-if="g.steps && g.steps.length" class="gsec" open>
-              <summary class="guide-h4">Leveling Route</summary>
-              <div v-for="st in g.steps" :key="st.range" class="step">
-                <div class="step-head">{{ st.range }}</div>
-                <p v-if="st.note" class="step-note">{{ st.note }}</p>
-                <table class="guide-table">
-                  <thead>
-                    <tr><th>Skill</th><th>Qty</th><th>Craft</th><th>Reagents</th></tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(row, ri) in st.rows" :key="ri">
-                      <td class="nowrap">{{ row.skill }}</td>
-                      <td class="nowrap">{{ row.qty }}</td>
-                      <td>
-                        <a v-if="row.craft.id" :href="wowheadLink(row.craft)" data-wowhead="" target="_blank" rel="noopener">{{ row.craft.name }}</a>
-                        <span v-else>{{ row.craft.name }}</span>
-                      </td>
-                      <td>
-                        <span v-for="(rg, i) in row.reagents" :key="i">
-                          <span v-if="i"> · </span>
-                          <b v-if="rg.qty">{{ rg.qty }}×</b>
-                          <a v-if="rg.id" :href="wowheadItem(rg.id)" data-wowhead="" target="_blank" rel="noopener">{{ rg.name }}</a>
-                          <span v-else>{{ rg.name }}</span>
-                        </span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </details>
-
-            <!-- gathering route (mining/herbalism/skinning/fishing) -->
-            <details v-if="g.gathering && g.gathering.length" class="gsec" open>
-              <summary class="guide-h4">Leveling Route</summary>
-              <div v-for="st in g.gathering" :key="st.range" class="step">
-                <div class="step-head">{{ st.range }}</div>
-                <p v-if="st.note" class="step-note">{{ st.note }}</p>
-                <table v-if="st.zones && st.zones.length" class="guide-table">
-                  <tbody>
-                    <tr v-for="(z, zi) in st.zones" :key="zi">
-                      <td v-for="(cell, ci) in z" :key="ci" :class="{ nowrap: ci === 0 }">{{ cell }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </details>
-
-            <!-- notable items -->
-            <details v-if="g.items && g.items.length" class="gsec" open>
-              <summary class="guide-h4">Worth Knowing</summary>
-              <ul class="guide-notes">
-                <li v-for="it in g.items" :key="it.id">
-                  <a :href="wowheadItem(it.id)" data-wowhead="" target="_blank" rel="noopener">{{ it.name }}</a>
-                  — {{ it.note }}
-                </li>
-              </ul>
-            </details>
-
-            <!-- trainers: generic sections (new shape) -->
-            <details v-if="g.trainers && g.trainers.sections" class="gsec" open>
-              <summary class="guide-h4">Trainers</summary>
-              <div v-for="(sec, si) in g.trainers.sections" :key="si" class="trainer-sec">
-                <h5 v-if="sec.title" class="trainer-h5">{{ sec.title }}</h5>
-                <p v-for="(n, ni) in sec.notes" :key="'n' + ni" class="step-note">{{ n }}</p>
-                <ul v-if="sec.lines.length" class="trainer-lines">
-                  <li v-for="(l, li) in sec.lines" :key="li">{{ l }}</li>
-                </ul>
-                <table v-if="sec.rows.length" class="guide-table">
-                  <tbody>
-                    <tr v-for="(r, ri) in sec.rows" :key="ri">
-                      <td v-for="(cell, ci) in r" :key="ci" :class="{ nowrap: ci === 0 }">{{ cell }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </details>
-            <!-- trainers: old shape (cooking) -->
-            <details v-else class="gsec" open>
-              <summary class="guide-h4">Trainers</summary>
-              <div class="trainer-cols">
-                <div>
-                  <h5 class="trainer-h5">Alliance — Apprentice / Journeyman</h5>
+                <!-- trainers: generic sections (new shape) -->
+                <details v-if="g.trainers && g.trainers.sections" class="gsec" open>
+                  <summary class="guide-h4">Trainers</summary>
+                  <div v-for="(sec, si) in g.trainers.sections" :key="si" class="trainer-sec">
+                    <h5 v-if="sec.title" class="trainer-h5">{{ sec.title }}</h5>
+                    <p v-for="(n, ni) in sec.notes" :key="'n' + ni" class="step-note">{{ n }}</p>
+                    <ul v-if="sec.lines.length" class="trainer-lines">
+                      <li v-for="(l, li) in sec.lines" :key="li">{{ l }}</li>
+                    </ul>
+                    <table v-if="sec.rows.length" class="guide-table">
+                      <tbody>
+                        <tr v-for="(r, ri) in sec.rows" :key="ri">
+                          <td v-for="(cell, ci) in r" :key="ci" :class="{ nowrap: ci === 0 }">{{ cell }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+                <!-- trainers: old shape (cooking) -->
+                <details v-else class="gsec" open>
+                  <summary class="guide-h4">Trainers</summary>
+                  <div class="trainer-cols">
+                    <div>
+                      <h5 class="trainer-h5">Alliance — Apprentice / Journeyman</h5>
+                      <table class="guide-table">
+                        <tbody>
+                          <tr v-for="t in g.trainers.alliance.basic" :key="t.name">
+                            <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      <h5 class="trainer-h5">Alliance — Expert (book vendor)</h5>
+                      <table class="guide-table">
+                        <tbody>
+                          <tr v-for="t in g.trainers.alliance.expert" :key="t.name">
+                            <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div>
+                      <h5 class="trainer-h5">Horde — Apprentice / Journeyman</h5>
+                      <table class="guide-table">
+                        <tbody>
+                          <tr v-for="t in g.trainers.horde.basic" :key="t.name">
+                            <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      <h5 class="trainer-h5">Horde — Expert (book vendor)</h5>
+                      <table class="guide-table">
+                        <tbody>
+                          <tr v-for="t in g.trainers.horde.expert" :key="t.name">
+                            <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <h5 class="trainer-h5">Artisan (quest — both factions)</h5>
                   <table class="guide-table">
                     <tbody>
-                      <tr v-for="t in g.trainers.alliance.basic" :key="t.name">
+                      <tr v-for="t in g.trainers.artisan" :key="t.name">
                         <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
                       </tr>
                     </tbody>
                   </table>
-                  <h5 class="trainer-h5">Alliance — Expert (book vendor)</h5>
-                  <table class="guide-table">
-                    <tbody>
-                      <tr v-for="t in g.trainers.alliance.expert" :key="t.name">
-                        <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h5 class="trainer-h5">Horde — Apprentice / Journeyman</h5>
-                  <table class="guide-table">
-                    <tbody>
-                      <tr v-for="t in g.trainers.horde.basic" :key="t.name">
-                        <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <h5 class="trainer-h5">Horde — Expert (book vendor)</h5>
-                  <table class="guide-table">
-                    <tbody>
-                      <tr v-for="t in g.trainers.horde.expert" :key="t.name">
-                        <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                </details>
               </div>
-              <h5 class="trainer-h5">Artisan (quest — both factions)</h5>
-              <table class="guide-table">
-                <tbody>
-                  <tr v-for="t in g.trainers.artisan" :key="t.name">
-                    <td>{{ t.name }}</td><td>{{ t.zone }}</td><td class="nowrap coords">{{ t.coords }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </details>
+            </div>
           </div>
         </div>
       </section>
@@ -1126,6 +1184,15 @@ const CLASS_ICON_FID = {
 let VIEWER_SCRIPT = null;
 const VIEWERS = {};
 
+// Guides progress (tier checkboxes) — per-browser, no account needed.
+function loadGuideProgress() {
+  try {
+    return JSON.parse(localStorage.getItem("munkehub_guide_progress")) || {};
+  } catch {
+    return {}
+  }
+}
+
 export default {
   name: "App",
   data() {
@@ -1148,8 +1215,12 @@ export default {
       apiVersion: "",
       changelog: CHANGELOG,
       guides: [...GUIDES, ...GUIDES_EXTRA],
-      // selected profession in the Guides tab (chip selector)
+      // selected profession in the Guides tab (rail selector)
       guideSel: "cooking",
+      // Guides tab — live market data (loaded per selected guide)
+      guidePrices: null, // item_id -> {min, avg7, units, sold24h}
+      guideBags: null, // item_id -> {n, chars} (merged guild bag scans)
+      guideProgress: loadGuideProgress(), // guideId -> [tier ranges done]
       // --- Auction House tab ---
       ahTab: "deals", // deals | sell | listings | crafting
       ahSummary: null,
@@ -1224,6 +1295,9 @@ export default {
     } catch {
       this.apiVersion = "?";
     }
+    // Guides: merged bag scans ("we already have this") + default guide prices.
+    this.loadGuideBags();
+    this.loadGuideData();
     // Auction House: load the default section (deals) + overview + AI advice.
     this.loadAh();
     this.loadAdvice(false);
@@ -1520,6 +1594,126 @@ export default {
       const h = Math.floor(mins / 60);
       if (h < 24) return `${h}h ago`;
       return `${Math.floor(h / 24)}d ago`;
+    },
+    // --- Guides tab: live prices, bags, progress, crafters ----------------
+    selectGuide(id) {
+      this.guideSel = id;
+      this.loadGuideData();
+    },
+    // Prices for every item the visible guide references (one batched call).
+    async loadGuideData() {
+      const g = this.guides.find((x) => x.id === this.guideSel);
+      if (!g) return;
+      const ids = new Set();
+      (g.shopping || []).forEach((s) =>
+        (s.items || []).forEach((it) => it.id && ids.add(it.id))
+      );
+      (g.steps || []).forEach((st) =>
+        (st.rows || []).forEach((row) =>
+          (row.reagents || []).forEach((rg) => rg.id && ids.add(rg.id))
+        )
+      );
+      (g.items || []).forEach((it) => it.id && ids.add(it.id));
+      if (!ids.size) return;
+      try {
+        const res = await api.ahPrices([...ids].slice(0, 200));
+        this.guidePrices = { ...(this.guidePrices || {}), ...(res.prices || {}) };
+      } catch {
+        /* prices are decoration — the guide works without them */
+      }
+    },
+    // Merged bag scans from every character — "we already have 60 of these".
+    async loadGuideBags() {
+      try {
+        const res = await api.ahBagsAll();
+        const map = {};
+        (res.items || []).forEach((b) => {
+          map[b.item_id] = { n: b.count, chars: b.chars };
+        });
+        this.guideBags = map;
+      } catch {
+        this.guideBags = null;
+      }
+    },
+    priceOf(id) {
+      return (this.guidePrices && this.guidePrices[id]) || null;
+    },
+    haveOf(id) {
+      return (this.guideBags && this.guideBags[id]) || null;
+    },
+    // "~52" / "12" / "408-459" → number (leading qty; ranges take the low end)
+    qtyNum(q) {
+      const m = String(q == null ? "" : q).match(/\d+/);
+      return m ? parseInt(m[0], 10) : 0;
+    },
+    // Enough in our bags to cover this line?
+    haveFull(it) {
+      const need = this.qtyNum(it.qty);
+      const h = it.id ? this.haveOf(it.id) : null;
+      return !!(h && need > 0 && h.n >= need);
+    },
+    // Cost of one shopping-list tier at today's cheapest prices.
+    tierTotal(s) {
+      let sum = 0;
+      let missing = 0;
+      (s.items || []).forEach((it) => {
+        const p = it.id ? this.priceOf(it.id) : null;
+        if (p) sum += p.min * this.qtyNum(it.qty);
+        else missing++;
+      });
+      return { sum, missing };
+    },
+    // −% badge when today's cheapest is 20%+ under the 7-day average.
+    dealPct(id) {
+      const p = this.priceOf(id);
+      if (!p || !p.avg7 || !(p.min > 0) || p.min > 0.8 * p.avg7) return 0;
+      return Math.round((1 - p.min / p.avg7) * 100);
+    },
+    // Tier checkboxes (progress tracker) — shopping ranges, else route ranges.
+    guideTiers(g) {
+      const src =
+        (g.shopping && g.shopping.length && g.shopping) ||
+        (g.steps && g.steps.length && g.steps) ||
+        (g.gathering && g.gathering.length && g.gathering) ||
+        [];
+      return src.map((x) => x.range);
+    },
+    guidePct(g) {
+      const tiers = this.guideTiers(g);
+      if (!tiers.length) return 0;
+      const done = (this.guideProgress[g.id] || []).filter((t) =>
+        tiers.includes(t)
+      ).length;
+      return Math.round((done / tiers.length) * 100);
+    },
+    isTierDone(g, t) {
+      return (this.guideProgress[g.id] || []).includes(t);
+    },
+    toggleTier(g, t) {
+      const cur = new Set(this.guideProgress[g.id] || []);
+      if (cur.has(t)) cur.delete(t);
+      else cur.add(t);
+      this.guideProgress = { ...this.guideProgress, [g.id]: [...cur] };
+      try {
+        localStorage.setItem(
+          "munkehub_guide_progress",
+          JSON.stringify(this.guideProgress)
+        );
+      } catch {
+        /* private mode — progress just won't persist */
+      }
+    },
+    // Guild members with this profession (addon-synced professions column).
+    guideCrafters(g) {
+      const want = (g.name || "").toLowerCase();
+      return (this.characters || []).filter((c) =>
+        (c.professions || "")
+          .split(",")
+          .some((p) => p.trim().toLowerCase() === want)
+      );
+    },
+    classColor(c) {
+      return CLASS_COLORS[(c.class || "").toLowerCase()] || "var(--ink)";
     },
     classSlug(cls) {
       return "c-" + (cls || "").toLowerCase().replace(/[^a-z]/g, "");
@@ -1903,9 +2097,9 @@ body {
   color: var(--ink);
 }
 .page {
-  max-width: 860px;
+  max-width: 1360px;
   margin: 0 auto;
-  padding: 1.5rem 1rem 3rem;
+  padding: 1.5rem 1.5rem 3rem;
 }
 
 /* ---------------- banner ---------------- */
@@ -1954,6 +2148,15 @@ body {
 }
 
 /* ---------------- setup guide ---------------- */
+/* text-heavy tabs stay readable on wide screens */
+.guide-intro,
+.steps,
+.cl-list,
+.notice p,
+.explain-card,
+.helper-steps {
+  max-width: 760px;
+}
 .guide-intro p {
   margin: 0 0 1rem;
   line-height: 1.6;
@@ -2559,6 +2762,157 @@ main {
   box-shadow: 0 0 0 1px #000, 0 0 10px rgba(247, 226, 173, 0.45);
 }
 /* --- Guides section --- */
+/* rail (left) + content (right) — rail sticks while reading on wide screens */
+.guides-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 1.4rem;
+  align-items: start;
+}
+.guides-rail {
+  position: sticky;
+  top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.12s ease;
+}
+.rail-item:hover {
+  color: var(--ink);
+  border-color: var(--edge);
+}
+.rail-item.active {
+  color: var(--gold-bright);
+  background: rgba(200, 164, 77, 0.1);
+  border-color: var(--gold);
+  font-weight: 700;
+}
+.rail-icon {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: #0e0d11;
+  padding: 1px;
+  flex: none;
+}
+.rail-item.active .rail-icon {
+  border-color: var(--gold);
+}
+.rail-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-pct {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--gold-bright);
+  background: rgba(200, 164, 77, 0.14);
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+}
+.guide-head {
+  align-items: flex-start;
+}
+.guide-headtext {
+  flex: 1;
+  min-width: 0;
+}
+/* progress tracker (tier checkboxes) */
+.guide-progress {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  min-width: 130px;
+}
+.gp-bar {
+  width: 130px;
+  height: 8px;
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.gp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold), var(--gold-bright));
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+.gp-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+/* tier checkbox inside range badges */
+.tier-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  user-select: none;
+}
+.tier-check input {
+  accent-color: var(--gold);
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+}
+.tier-check input:checked + span {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+/* inside .step-head the badge is the head itself — no nested badge */
+.step-head .tier-check span {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+/* guild crafters line */
+.guide-crafters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: baseline;
+  background: rgba(200, 164, 77, 0.06);
+  border: 1px solid rgba(200, 164, 77, 0.3);
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.85rem;
+}
+.gc-label {
+  color: var(--gold);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-right: 0.15rem;
+}
 /* profession selector chips */
 .guide-chips {
   display: flex;
@@ -2895,7 +3249,8 @@ details[open] > summary.guide-h4::after {
   border-radius: 8px;
   padding: 0.6rem 0.8rem;
 }
-.shop-range {
+.shop-range,
+.tier-check span {
   display: inline-block;
   font-size: 0.72rem;
   font-weight: 700;
@@ -2904,7 +3259,51 @@ details[open] > summary.guide-h4::after {
   border: 1px solid rgba(200, 164, 77, 0.4);
   border-radius: 4px;
   padding: 0.1rem 0.5rem;
+}
+.shop-card .shop-range {
   margin-bottom: 0.4rem;
+}
+/* tier header: checkbox range + tier total */
+.shop-cardhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+.shop-cardhead .tier-check span {
+  margin-bottom: 0;
+}
+.shop-total {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--gold-bright);
+  white-space: nowrap;
+}
+.shop-miss {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.7rem;
+}
+/* live price next to a reagent */
+.shop-price {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-left: 0.4rem;
+  white-space: nowrap;
+}
+/* "✓ have" — already in our bags */
+.shop-have {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #7fd18a;
+  background: rgba(127, 209, 138, 0.12);
+  border: 1px solid rgba(127, 209, 138, 0.4);
+  border-radius: 4px;
+  padding: 0 0.35rem;
+  margin-left: 0.35rem;
+  white-space: nowrap;
 }
 .shop-list {
   list-style: none;
@@ -3249,5 +3648,17 @@ footer {
   .detail-row td { display: block; }
   .detail-row td::before { display: none; }
   .dash { grid-template-columns: repeat(2, 1fr); }
+
+  /* guides: rail becomes a horizontal scroll strip above the content */
+  .guides-layout { grid-template-columns: 1fr; gap: 0.9rem; }
+  .guides-rail {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 0.3rem;
+    gap: 0.35rem;
+  }
+  .rail-item { width: auto; flex: none; }
+  .guide-progress { display: none; }
 }
 </style>

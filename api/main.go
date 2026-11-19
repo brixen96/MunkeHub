@@ -25,7 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.23"
+const version = "0.8.24"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -157,6 +157,7 @@ func main() {
 
 		// Price history (7-day snapshots, hourly) + guild watchlist (⭐)
 		api.GET("/ah/history", func(c *gin.Context) { ahHistory(c, db) })
+		api.GET("/ah/prices", func(c *gin.Context) { ahPrices(c, db) })
 		api.GET("/ah/watchlist", func(c *gin.Context) { ahWatchlistList(c, db) })
 		api.POST("/ah/watchlist", func(c *gin.Context) { ahWatchlistAdd(c, db) })
 		api.DELETE("/ah/watchlist/:id", func(c *gin.Context) { ahWatchlistRemove(c, db) })
