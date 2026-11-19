@@ -33,7 +33,7 @@
           Guides
         </button>
         <button :class="{ active: tab === 'ah' }" @click="tab = 'ah'">
-          Auction House
+          Auction House<span v-if="watchDealsCount" class="nav-badge">{{ watchDealsCount }}</span>
         </button>
         <button :class="{ active: tab === 'changelog' }" @click="tab = 'changelog'">
           Changelog
@@ -599,6 +599,10 @@
                 <p class="ah-note">
                   <input v-model="ahQuery" class="ah-search" type="search"
                          placeholder="Search items…" @input="searchListings">
+                  <button class="chip" :class="{ active: ahOnlyOurs }"
+                          :disabled="!ourSubclasses.size"
+                          :title="ourSubclasses.size ? 'Show only what our professions farm' : 'No professions synced yet (addon /reload)'"
+                          @click="ahOnlyOurs = !ahOnlyOurs">Only ours</button>
                   <span v-if="ahListings && ahListings.query">
                     {{ fmtNum(ahListings.total) }} matches for “{{ ahListings.query }}”.
                   </span>
@@ -638,6 +642,45 @@
                   Showing the hottest {{ ahListings.items.length }} of {{ fmtNum(ahListings.total) }} tracked items —
                   search above to find anything else.
                 </p>
+              </details>
+            </div>
+
+            <!-- ---------- Farming ---------- -->
+            <div v-if="ahTab === 'farm'" class="guide">
+              <details class="gsec" open>
+                <summary class="guide-h4">
+                  Farm this — ranked by daily market value
+                </summary>
+                <p class="ah-note">
+                  Raw materials matching the guild's professions
+                  <template v-if="ahFarmProfs.length">({{ ahFarmProfs.join(", ") }})</template>.
+                  Market/day = cheapest price × sold in 24h.
+                </p>
+                <p v-if="!ahFarm.length" class="muted">Nothing farmable cached yet.</p>
+                <table v-else class="guide-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th><th class="num">Cheapest</th><th class="num">Sold 24h</th>
+                      <th class="num">Market/day</th><th>Where</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="f in ahFarm" :key="f.item_id">
+                      <td class="ah-item">
+                        <button class="star" :class="{ on: watchSet.has(f.item_id) }"
+                                :title="watchSet.has(f.item_id) ? 'Remove from watchlist' : 'Add to watchlist'"
+                                @click="toggleWatch(f.item_id)">★</button>
+                        <img :src="f.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
+                        <a :href="wowheadItem(f.item_id)" data-wowhead="" target="_blank" rel="noopener">{{ f.name }}</a>
+                        <span class="ah-sub">{{ f.subclass }}</span>
+                      </td>
+                      <td class="num nowrap">{{ fmtMoney(f.min_copper) }}</td>
+                      <td class="num">{{ fmtNum(f.sold_24h) }}</td>
+                      <td class="num nowrap ah-gold">{{ fmtMoney(f.market_day) }}</td>
+                      <td class="ah-where">{{ farmZones(f.subclass) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </details>
             </div>
 
@@ -762,7 +805,7 @@
             <!-- ---------- Crafting ---------- -->
             <div v-if="ahTab === 'crafting'" class="guide">
               <div class="guide-chips">
-                <button v-for="p in ahCraftProfs" :key="p.id" class="chip"
+                <button v-for="p in ahCraftChipProfs" :key="p.id" class="chip"
                         :class="{ active: ahCraftProf === String(p.id) }"
                         @click="loadCrafting(String(p.id))">{{ p.name }}</button>
               </div>
@@ -777,6 +820,10 @@
                             @click="setCraftSort('profit')">By profit</button>
                     <button class="chip" :class="{ active: ahCraftSort === 'roi' }"
                             @click="setCraftSort('roi')">By demand × profit</button>
+                    <button class="chip" :class="{ active: ahOnlyOurs }"
+                            :disabled="!guildProfs.length"
+                            :title="guildProfs.length ? 'Show only our professions' : 'No professions synced yet (addon /reload)'"
+                            @click="ahOnlyOurs = !ahOnlyOurs">Only ours</button>
                   </span>
                 </p>
                 <table class="guide-table">
@@ -1086,6 +1133,11 @@ export default {
       // money makers (flips + vendor snipes)
       ahFlips: [],
       ahSnipes: [],
+      // farming table (guild professions × market)
+      ahFarm: [],
+      ahFarmProfs: [],
+      // "only what WE can craft/farm" filter (Listings + Crafting chips)
+      ahOnlyOurs: false,
       // crafting sort: "profit" (upstream default) | "roi" (profit × sold)
       ahCraftSort: "profit",
       guildError: false,
@@ -1145,9 +1197,39 @@ export default {
         { id: "sell", name: "Best to sell" },
         { id: "listings", name: "Listings" },
         { id: "crafting", name: "Crafting" },
+        { id: "farm", name: "Farming" },
         { id: "money", name: "Money makers" },
         { id: "watch", name: `Watchlist${this.ahWatch.length ? " (" + this.ahWatch.length + ")" : ""}` },
       ];
+    },
+    // Watched items currently listed as deals → nav badge count.
+    watchDealsCount() {
+      return this.ahWatch.filter((w) => w.in_deals).length;
+    },
+    // Subclasses the guild can farm/consume (same mapping as the API).
+    ourSubclasses() {
+      const map = {
+        herbalism: "Herb",
+        mining: "Metal & Stone",
+        skinning: "Leather",
+        fishing: "Cooking",
+        cooking: "Cooking",
+        tailoring: "Cloth",
+      };
+      const set = new Set();
+      this.guildProfs.forEach((p) => {
+        const s = map[p.toLowerCase()];
+        if (s) set.add(s);
+      });
+      return set;
+    },
+    // "Only what WE can craft/farm" filter for Listings.
+    ahListingRows() {
+      let rows = this.ahListings && this.ahListings.items ? this.ahListings.items : [];
+      if (this.ahOnlyOurs && this.ourSubclasses.size) {
+        rows = rows.filter((i) => this.ourSubclasses.has(i.subclass_name));
+      }
+      return rows;
     },
     // Set of watched item ids — for the ★ state in every table.
     watchSet() {
@@ -1159,11 +1241,16 @@ export default {
     ahSalesItems() {
       return (this.ahSales && this.ahSales.items ? this.ahSales.items : []).slice(0, 50);
     },
-    ahListingRows() {
-      return this.ahListings && this.ahListings.items ? this.ahListings.items : [];
-    },
     ahCraftRows() {
       return (this.ahCraft && this.ahCraft.recipes ? this.ahCraft.recipes : []).slice(0, 50);
+    },
+    // Profession chips: filtered to the guild's own professions when the
+    // "only ours" toggle is on (recipes are per-profession, so the filter
+    // lives on the selector, not the rows).
+    ahCraftChipProfs() {
+      if (!this.ahOnlyOurs || !this.guildProfs.length) return this.ahCraftProfs;
+      const ours = new Set(this.guildProfs.map((p) => p.toLowerCase()));
+      return this.ahCraftProfs.filter((p) => ours.has(String(p.name).toLowerCase()));
     },
     // total units available across all vendor snipes (for the "All" column)
     ahSnipesUnits() {
@@ -1205,7 +1292,35 @@ export default {
       if (id === "listings" && !this.ahListings) this.searchListings();
       if (id === "crafting" && !this.ahCraft) this.loadCrafting(this.ahCraftProf);
       if (id === "money" && !this.ahFlips.length && !this.ahSnipes.length) this.loadMoney();
+      if (id === "farm" && !this.ahFarm.length) this.loadFarm();
       if (id === "watch") this.loadWatch();
+    },
+    // Farming table: guild professions × market (server ranks by market/day).
+    async loadFarm() {
+      try {
+        const res = await api.ahFarming();
+        this.ahFarm = res.items || [];
+        this.ahFarmProfs = res.professions || [];
+      } catch {
+        this.ahFarm = [];
+      }
+    },
+    // Zone hints per subclass — from the guides' leveling routes (frontend).
+    farmZones(subclass) {
+      // cloth drops from humanoids — no gathering route exists
+      if (subclass === "Cloth") return "Humanoid mobs (dungeons, quests)";
+      const guideId = {
+        Herb: "herbalism",
+        "Metal & Stone": "mining",
+        Leather: "skinning",
+        Cooking: "fishing",
+      }[subclass];
+      const g = this.guides.find((x) => x.id === guideId);
+      if (!g || !g.gathering || !g.gathering.length) return "—";
+      // last tier = endgame zones (where the valuable stuff drops)
+      const last = g.gathering[g.gathering.length - 1];
+      const zones = (last.zones || []).map((z) => (Array.isArray(z) ? z[0] : z)).filter(Boolean);
+      return zones.slice(0, 3).join(", ") || "—";
     },
     // Money makers: flips + vendor snipes (two parallel calls, no cache needed).
     async loadMoney() {
@@ -1948,6 +2063,23 @@ body {
   color: var(--gold-bright);
   background: rgba(200, 164, 77, 0.1);
   box-shadow: inset 0 -2px 0 var(--gold);
+}
+/* deal-alert badge on the Auction House tab (watched items on sale) */
+.nav-badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  background: #b3402f;
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  min-width: 1.15rem;
+  padding: 0.05rem 0.3rem;
+  text-align: center;
+}
+.ah-where {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 /* ---------------- panels ---------------- */

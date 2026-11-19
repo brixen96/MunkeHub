@@ -2,6 +2,16 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.22",
+    date: "2026-11-19",
+    entries: [
+      "Auction House: Farming tab — what our professions should farm right now, ranked by daily market value, with zone hints from the guides.",
+      "Listings and Crafting: 'Only ours' filter shows just what our guild can gather or craft.",
+      "Deal alerts: a badge on the Auction House tab counts watched items currently on sale.",
+      "The AI advisor now refreshes itself automatically (a few times a day).",
+    ],
+  },
+  {
     version: "0.8.21",
     date: "2026-11-19",
     entries: [

@@ -197,9 +197,11 @@ func listingIndex(db *sql.DB) map[int64]ahItem {
 		for _, it := range pg.Items {
 			out[it.ID] = ahItem{
 				ID: it.ID, Name: it.Name, Icon: it.Icon,
+				ClassName: it.ClassName, Subclass: it.Subclass,
 				Units: it.Units, Listings: it.Listings,
 				Sold24h: it.Confirmed24h, Possible24h: it.Possible24h,
 				AvgAsk: it.AvgAsk, MinAsk: it.MinAsk,
+				VendorSell: it.VendorSell,
 				Suspicious: it.MinAsk > 0 && it.AvgAsk > 3*it.MinAsk,
 			}
 		}

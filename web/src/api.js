@@ -9,7 +9,7 @@ async function get(path) {
 }
 
 // Bump on every release — shown in the footer so Emil can verify versions.
-export const WEB_VERSION = "0.8.21";
+export const WEB_VERSION = "0.8.22";
 
 export const api = {
   health: () => fetch("/health").then((r) => r.json()),
@@ -50,6 +50,8 @@ export const api = {
   // Money makers: flipping opportunities + vendor snipes (pure math, no AI).
   ahFlips: () => get("/ah/flips"),
   ahVendorSnipes: () => get("/ah/vendor-snipes"),
+  // Farming table: guild professions × market (ranked by market/day).
+  ahFarming: () => get("/ah/farming"),
   // MunkeHub AI advisor — cached 6h server-side; refresh=1 forces a new call.
   ahAdvice: (refresh = false) => get(`/ah/advice${refresh ? "?refresh=1" : ""}`),
   // Price history: batched sparkline points for up to 60 items.

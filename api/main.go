@@ -25,7 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.21"
+const version = "0.8.22"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -147,6 +147,9 @@ func main() {
 		// Money makers: flipping opportunities + vendor snipes (pure math)
 		api.GET("/ah/flips", func(c *gin.Context) { ahFlips(c, db) })
 		api.GET("/ah/vendor-snipes", func(c *gin.Context) { ahVendorSnipes(c, db) })
+
+		// Farming table: what the guild's professions should farm right now
+		api.GET("/ah/farming", func(c *gin.Context) { ahFarming(c, db) })
 
 		// Price history (7-day snapshots, hourly) + guild watchlist (⭐)
 		api.GET("/ah/history", func(c *gin.Context) { ahHistory(c, db) })

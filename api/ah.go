@@ -270,6 +270,10 @@ func (p *ahPoller) poll() {
 		p.snapshotItems()
 	}
 
+	// daily AI briefing: refresh the advisor when its 6h cache is stale
+	// (async — an AI hiccup must never block the poll loop).
+	maybeRefreshAdvice(p.db)
+
 	ah.mu.Lock()
 	ah.lastPoll = time.Now()
 	ah.lastOK, ah.lastFail = ok, fail

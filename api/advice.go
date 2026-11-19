@@ -307,54 +307,51 @@ func buildDigest(db *sql.DB) (ahDigest, error) {
 	return d, nil
 }
 
-// ahAdviceHandler serves GET /api/v1/ah/advice[?refresh=1].
-// Cached 6h — one LLM call per refresh, not per page view.
-func ahAdviceHandler(c *gin.Context, db *sql.DB) {
-	// OPENROUTER_API_KEY is the canonical name; OPENAI_API_KEY is accepted
-	// as a fallback (Emil's existing key lives under that name and works
-	// against OpenRouter — verified 2026-11-19).
-	key := os.Getenv("OPENROUTER_API_KEY")
-	if key == "" {
-		key = os.Getenv("OPENAI_API_KEY")
+// adviceKey returns the configured OpenRouter key (OPENAI_API_KEY accepted
+// as a fallback — Emil's existing key lives under that name and works
+// against OpenRouter; verified 2026-11-19). Empty = not configured.
+func adviceKey() string {
+	if k := os.Getenv("OPENROUTER_API_KEY"); k != "" {
+		return k
 	}
-	if key == "" {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": "AI advisor not configured (OPENROUTER_API_KEY missing)",
-		})
-		return
-	}
+	return os.Getenv("OPENAI_API_KEY")
+}
 
-	// serve cache unless refresh=1 or older than the TTL
-	if c.Query("refresh") != "1" {
-		var body, fetchedAt string
-		if err := db.QueryRow(`SELECT body, fetched_at FROM ah_cache WHERE key = ?`, adviceCacheKey).
-			Scan(&body, &fetchedAt); err == nil {
-			if t, err := time.Parse("2006-01-02 15:04:05", fetchedAt); err == nil && time.Since(t) < adviceTTL {
-				c.Header("X-AH-Fetched-At", fetchedAt)
-				c.Data(http.StatusOK, "application/json", []byte(body))
-				return
-			}
-		}
+// adviceUpToDate reports whether a fresh-enough advice blob is cached.
+func adviceUpToDate(db *sql.DB) (string, bool) {
+	var body, fetchedAt string
+	if err := db.QueryRow(`SELECT body, fetched_at FROM ah_cache WHERE key = ?`, adviceCacheKey).
+		Scan(&body, &fetchedAt); err != nil {
+		return "", false
 	}
+	t, err := time.Parse("2006-01-02 15:04:05", fetchedAt)
+	if err != nil || time.Since(t) >= adviceTTL {
+		return "", false
+	}
+	return body, true
+}
 
+// refreshAdvice runs one LLM call and caches the result. Shared by the HTTP
+// handler (manual refresh) and the poller (daily briefing — the card is
+// always fresh without anyone clicking).
+func refreshAdvice(db *sql.DB) (json.RawMessage, error) {
+	key := adviceKey()
+	if key == "" {
+		return nil, errAdviceNotConfigured
+	}
 	digest, err := buildDigest(db)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
-		return
+		return nil, err
 	}
-
 	raw, err := callOpenRouter(key, digest)
 	if err != nil {
-		log.Printf("ah: advice: %v", err)
-		c.JSON(http.StatusBadGateway, gin.H{"error": "AI request failed: " + err.Error()})
-		return
+		return nil, err
 	}
 
 	// validate + normalize before caching
 	var adv ahAdvice
 	if err := json.Unmarshal(raw, &adv); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "AI returned invalid JSON"})
-		return
+		return nil, fmt.Errorf("AI returned invalid JSON")
 	}
 	if adv.Sell == nil {
 		adv.Sell = []ahAdviceRow{}
@@ -372,6 +369,54 @@ func ahAdviceHandler(c *gin.Context, db *sql.DB) {
 		ON CONFLICT (key) DO UPDATE SET body = excluded.body, fetched_at = datetime('now')`,
 		adviceCacheKey, string(out)); err != nil {
 		log.Printf("ah: advice cache: %v", err)
+	}
+	return out, nil
+}
+
+// errAdviceNotConfigured marks "no key in env" — 503 to the browser.
+var errAdviceNotConfigured = fmt.Errorf("AI advisor not configured (OPENROUTER_API_KEY missing)")
+
+// maybeRefreshAdvice is the poller hook: refresh when the cache is missing
+// or older than the TTL (6h → at most 4 LLM calls/day, a few cents/month).
+// Runs in its own goroutine — an AI hiccup must never block the poll loop.
+func maybeRefreshAdvice(db *sql.DB) {
+	go func() {
+		if _, ok := adviceUpToDate(db); ok {
+			return
+		}
+		if _, err := refreshAdvice(db); err != nil && err != errAdviceNotConfigured {
+			log.Printf("ah: daily advice refresh: %v", err)
+		}
+	}()
+}
+
+// ahAdviceHandler serves GET /api/v1/ah/advice[?refresh=1].
+// Cached 6h — one LLM call per refresh, not per page view.
+func ahAdviceHandler(c *gin.Context, db *sql.DB) {
+	if adviceKey() == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "AI advisor not configured (OPENROUTER_API_KEY missing)",
+		})
+		return
+	}
+
+	// serve cache unless refresh=1 or stale
+	if c.Query("refresh") != "1" {
+		if body, ok := adviceUpToDate(db); ok {
+			c.Data(http.StatusOK, "application/json", []byte(body))
+			return
+		}
+	}
+
+	out, err := refreshAdvice(db)
+	if err != nil {
+		if err == errAdviceNotConfigured {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
+		log.Printf("ah: advice: %v", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "AI request failed: " + err.Error()})
+		return
 	}
 	c.Data(http.StatusOK, "application/json", out)
 }

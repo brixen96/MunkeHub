@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -102,6 +103,71 @@ func ahFlips(c *gin.Context, db *sql.DB) {
 		flips = flips[:30]
 	}
 	c.JSON(http.StatusOK, gin.H{"items": flips, "auction_cut": cut})
+}
+
+// --- Farming table ----------------------------------------------------------
+//
+// Which raw materials should the guild farm RIGHT NOW? We map each
+// profession the roster actually has to the item subclasses it farms (or
+// consumes, for tailoring→cloth), then rank those listings by daily market
+// value (cheapest × sold in 24h). Zones come from the frontend guides —
+// the API only ships the numbers.
+
+// farmSubclasses: profession (lowercase) → item subclasses worth farming.
+var farmSubclasses = map[string][]string{
+	"herbalism": {"Herb"},
+	"mining":    {"Metal & Stone"},
+	"skinning":  {"Leather"},
+	"fishing":   {"Cooking"}, // raw fish
+	"cooking":   {"Cooking"},
+	"tailoring": {"Cloth"}, // humanoid grinds feed tailoring
+}
+
+// defaultFarmProfs is used before anyone's professions have synced.
+var defaultFarmProfs = []string{"Herbalism", "Mining", "Skinning", "Fishing", "Tailoring"}
+
+type ahFarmItem struct {
+	ItemID     int64   `json:"item_id"`
+	Name       string  `json:"name"`
+	Icon       string  `json:"icon"`
+	Subclass   string  `json:"subclass"`
+	MinCopper  float64 `json:"min_copper"`
+	Sold24h    int64   `json:"sold_24h"`
+	Units      int64   `json:"units"`
+	MarketDay  float64 `json:"market_day"` // min × sold_24h — daily market value
+}
+
+// ahFarming serves farmable items for the guild's professions.
+func ahFarming(c *gin.Context, db *sql.DB) {
+	profs := guildFacts(db).Professions
+	if len(profs) == 0 {
+		profs = defaultFarmProfs
+	}
+	subs := map[string]bool{}
+	for _, p := range profs {
+		for _, s := range farmSubclasses[strings.ToLower(p)] {
+			subs[s] = true
+		}
+	}
+
+	items := []ahFarmItem{}
+	for _, li := range listingIndex(db) {
+		if !subs[li.Subclass] || li.MinAsk <= 0 {
+			continue
+		}
+		items = append(items, ahFarmItem{
+			ItemID: li.ID, Name: li.Name, Icon: li.Icon, Subclass: li.Subclass,
+			MinCopper: li.MinAsk, Sold24h: li.Sold24h, Units: li.Units,
+			MarketDay: li.MinAsk * float64(li.Sold24h),
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].MarketDay > items[j].MarketDay
+	})
+	if len(items) > 30 {
+		items = items[:30]
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items, "professions": profs})
 }
 
 // ahVendorSnipes serves items cheaper than their vendor price.
