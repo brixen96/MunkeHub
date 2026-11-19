@@ -25,7 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.25"
+const version = "0.8.26"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -40,6 +40,7 @@ type Announcement struct {
 
 type Character struct {
 	ID          int64     `json:"id"`
+	TokenID     int64     `json:"token_id"`   // account that synced it (alts share one)
 	Name        string    `json:"name"`       // first name — also the row key
 	LastName    string    `json:"last_name"`  // Forever surname (display only)
 	Realm       string    `json:"realm"`
@@ -525,7 +526,7 @@ func createToken(c *gin.Context, db *sql.DB) {
 
 func listCharacters(c *gin.Context, db *sql.DB) {
 	rows, err := db.Query(`
-		SELECT c.id, c.name, c.last_name, c.realm, c.race, c.class, c.level, c.ilvl,
+		SELECT c.id, c.token_id, c.name, c.last_name, c.realm, c.race, c.class, c.level, c.ilvl,
 		       c.spec, c.spec_icon, c.bid, c.zone, c.played, c.professions, c.prof_levels, c.gold,
 		       c.detail, c.updated_at
 		FROM characters c
@@ -540,7 +541,7 @@ func listCharacters(c *gin.Context, db *sql.DB) {
 	for rows.Next() {
 		var ch Character
 		var updatedAt string
-		if err := rows.Scan(&ch.ID, &ch.Name, &ch.LastName, &ch.Realm, &ch.Race, &ch.Class,
+		if err := rows.Scan(&ch.ID, &ch.TokenID, &ch.Name, &ch.LastName, &ch.Realm, &ch.Race, &ch.Class,
 			&ch.Level, &ch.ILvl, &ch.Spec, &ch.SpecIcon, &ch.Bid, &ch.Zone, &ch.Played,
 			&ch.Professions, &ch.ProfLevels, &ch.Gold, &ch.Detail, &updatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

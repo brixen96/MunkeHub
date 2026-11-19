@@ -74,38 +74,79 @@
             <span class="dash-num">{{ stats.classes.length }}</span>
             <span class="dash-label">Classes</span>
           </div>
+          <div class="dash-card">
+            <span class="dash-num" :class="{ 'is-online': onlineCount }">{{ onlineCount }}</span>
+            <span class="dash-label">In game now</span>
+          </div>
+          <div class="dash-card" v-if="activity">
+            <span class="dash-num">{{ activity.hours }}h</span>
+            <span class="dash-label">Guild /played</span>
+            <span class="dash-sub">{{ activity.mains }} main{{ activity.mains === 1 ? '' : 's' }} · {{ activity.alts }} alt{{ activity.alts === 1 ? '' : 's' }}</span>
+          </div>
         </div>
-        <div class="classbar" v-if="stats && stats.classes.length">
-          <span v-for="cc in stats.classes" :key="cc.class"
-                class="class-chip" :class="classSlug(cc.class)">
-            {{ cc.class }} ×{{ cc.count }}
+        <!-- who is in game right now -->
+        <div class="online-strip" v-if="onlineChars.length">
+          <span class="os-label">In game now</span>
+          <span v-for="c in onlineChars" :key="c.id" class="os-chip">
+            <span class="avatar sm" :class="classSlug(c.class)">
+              <img v-if="avatarSrc(c)" :src="avatarSrc(c)" alt=""
+                   loading="lazy" @error="$event.target.style.display = 'none'">
+              <span v-else v-html="classGlyph(c.class)"></span>
+            </span>
+            <span class="os-name" :class="classSlug(c.class)">{{ c.name }}</span>
+            <span class="online-dot on">●</span>
           </span>
+        </div>
+        <!-- class composition chart -->
+        <div class="classchart" v-if="stats && stats.classes.length">
+          <div v-for="cc in stats.classes" :key="cc.class" class="cc-row">
+            <span class="cc-name" :class="classSlug(cc.class)">{{ cc.class }}</span>
+            <div class="cc-track">
+              <div class="cc-fill"
+                   :style="{ width: Math.round((cc.count / stats.classes[0].count) * 100) + '%', background: classColor({ class: cc.class }) }"></div>
+            </div>
+            <span class="cc-count">{{ cc.count }} · {{ Math.round((cc.count / stats.characters) * 100) }}%</span>
+          </div>
         </div>
 
         <div class="panel">
           <h2 class="panel-title">Characters <span class="hint">— click a row to expand</span></h2>
+          <div class="roster-tools" v-if="characters && characters.length">
+            <input v-model.trim="rosterQuery" class="rt-search" type="search"
+                   placeholder="Search name, class, race, spec…" aria-label="Search roster">
+            <select v-model="rosterClass" class="ah-select" aria-label="Filter by class">
+              <option value="">All classes</option>
+              <option v-for="cc in (stats ? stats.classes : [])" :key="cc.class" :value="cc.class">
+                {{ cc.class }}
+              </option>
+            </select>
+            <button class="chip" :class="{ active: rosterOnlineOnly }"
+                    @click="rosterOnlineOnly = !rosterOnlineOnly">● Online only</button>
+            <button class="chip" @click="copyRoster">{{ copiedRoster ? '✓ Copied!' : 'Copy roster' }}</button>
+            <span class="rt-count">{{ rosterRows.length }}/{{ characters.length }} shown</span>
+          </div>
           <p v-if="charError" class="error">Could not load the roster.</p>
           <p v-else-if="!characters" class="muted">Loading…</p>
           <p v-else-if="characters.length === 0" class="muted">
             No characters synced yet — run the MunkeHub helper in-game.
           </p>
+          <p v-else-if="!rosterRows.length" class="muted">No characters match your filters.</p>
           <table v-else class="roster">
             <thead>
               <tr>
-                <th>Character</th>
-                <th>Race</th>
-                <th>Class</th>
-                <th>Lvl</th>
-                <th>iLvl</th>
-                <th>Updated</th>
+                <th v-for="col in rosterCols" :key="col.key"
+                    :class="{ sorted: sortKey === col.key }"
+                    @click="sortBy(col.key)">
+                  {{ col.label }}<span class="sort-arrow">{{ sortKey === col.key ? (sortDir > 0 ? '▲' : '▼') : '' }}</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              <template v-for="c in characters" :key="c.id">
+              <template v-for="c in rosterRows" :key="c.id">
                 <tr class="clickable" @click="toggleRow(c.id)">
                   <td data-label="Character">
                     <span class="chevron" :class="{ open: openRow === c.id }">▸</span>
-                    <span class="avatar" :class="classSlug(c.class)">
+                    <span class="avatar" :class="[classSlug(c.class), { online: isOnline(c.name) }]">
                       <img v-if="avatarSrc(c)" :src="avatarSrc(c)" alt=""
                            loading="lazy" @error="$event.target.style.display = 'none'">
                       <span v-else v-html="classGlyph(c.class)"></span>
@@ -120,14 +161,29 @@
                   <td data-label="Class" :class="classSlug(c.class)">
                     {{ c.class }}
                   </td>
-                  <td data-label="Lvl" class="lvl">{{ c.level }}</td>
-                  <td data-label="iLvl">{{ c.ilvl }}</td>
+                  <td data-label="Lvl" class="lvl">
+                    {{ c.level }}
+                    <div class="lvl-bar" title="Progress to 60">
+                      <div class="lvl-fill" :style="{ width: Math.min(100, Math.round((c.level / 60) * 100)) + '%' }"></div>
+                    </div>
+                  </td>
+                  <td data-label="iLvl">
+                    <span v-if="ilvlRanks[c.id]" class="medal">{{ ilvlRanks[c.id] }}</span>{{ Math.round(c.ilvl) }}
+                  </td>
+                  <td data-label="Gold" class="nowrap ah-gold">{{ c.gold > 0 ? fmtMoney(c.gold) : '—' }}</td>
+                  <td data-label="Profs" class="profs-cell">
+                    <template v-if="profChips(c).length">
+                      <span v-for="p in profChips(c)" :key="p.name" class="prof-chip">{{ p.name }} {{ p.level }}</span>
+                    </template>
+                    <span v-else class="muted">—</span>
+                  </td>
                   <td data-label="Updated" class="when">
-                    {{ formatDate(c.updated_at) }}
+                    <span v-if="isStale(c)" class="stale" :title="'Last synced ' + formatDate(c.updated_at)">⚠️ {{ fmtAgo(c.updated_at) }}</span>
+                    <template v-else>{{ formatDate(c.updated_at) }}</template>
                   </td>
                 </tr>
                 <tr v-if="openRow === c.id" class="detail-row">
-                  <td colspan="6">
+                  <td colspan="8">
                     <div class="detail-panel">
                       <!-- armory-style hero -->
                       <div class="armory-hero">
@@ -158,12 +214,26 @@
                       </div>
                       <div class="detail-core">
                         <div class="detail-item">
+                          <span class="detail-k">Status</span>
+                          <span class="detail-v">
+                            <span class="online-dot" :class="{ on: isOnline(c.name) }">●</span>
+                            {{ isOnline(c.name) ? 'In game now' : 'Offline' }}
+                          </span>
+                        </div>
+                        <div class="detail-item">
                           <span class="detail-k">Zone</span>
                           <span class="detail-v">{{ c.zone || '—' }}</span>
                         </div>
                         <div class="detail-item">
                           <span class="detail-k">Played</span>
                           <span class="detail-v">{{ formatPlayed(c) }}</span>
+                        </div>
+                        <div class="detail-item">
+                          <span class="detail-k">Gold</span>
+                          <span class="detail-v">
+                            {{ c.gold > 0 ? fmtMoney(c.gold) : '—' }}
+                            <span v-if="c.gold > 0 && goldShare(c)" class="muted"> · {{ goldShare(c) }}% of guild</span>
+                          </span>
                         </div>
                       </div>
                       <!-- Character / Talents sub-tabs (armory style) -->
@@ -175,7 +245,7 @@
                       </div>
                       <template v-if="sheetTab[c.id] !== 'talents'">
                       <div v-if="parseGear(c).length" class="paperdoll">
-                        <div class="pd-col">
+                        <div class="pd-col pd-left">
                           <div v-for="g in pdSlots(c, PD_LEFT)" :key="g.slot"
                                class="gear-slot" :class="['q' + g.q, { empty: !g.id }]"
                                :title="g.id ? null : g.slot">
@@ -198,7 +268,7 @@
                             <span v-else class="pd-avatar pd-glyph" v-html="classGlyph(c.class)"></span>
                           </template>
                         </div>
-                        <div class="pd-col">
+                        <div class="pd-col pd-right">
                           <div v-for="g in pdSlots(c, PD_RIGHT)" :key="g.slot"
                                class="gear-slot" :class="['q' + g.q, { empty: !g.id }]"
                                :title="g.id ? null : g.slot">
@@ -1396,6 +1466,14 @@ export default {
       talentData: {},
       tab: "roster",
       openRow: null,
+      // roster sort + filter
+      sortKey: "level",
+      sortDir: -1, // 1 = ascending, -1 = descending
+      rosterQuery: "",
+      rosterClass: "",
+      rosterOnlineOnly: false,
+      copiedRoster: false,
+      presenceTimer: null,
       stats: null,
       guild: null,
       webVersion: WEB_VERSION,
@@ -1498,13 +1576,17 @@ export default {
     // Guides: merged bag scans ("we already have this") + default guide prices.
     this.loadGuideBags();
     this.loadGuideData();
-    // presence dots + Guild Board
+    // presence dots + Guild Board (presence refreshes every 30s for live dots)
     this.loadPresence();
+    this.presenceTimer = setInterval(() => this.loadPresence(), 30000);
     this.loadBoard();
     // Auction House: load the default section (deals) + overview + AI advice.
     this.loadAh();
     this.loadAdvice(false);
     this.loadWatch();
+  },
+  beforeUnmount() {
+    if (this.presenceTimer) clearInterval(this.presenceTimer);
   },
   computed: {
     // Guides tab: only the profession picked in the chip selector shows.
@@ -1601,6 +1683,87 @@ export default {
         if (p && p.online) s.add(name);
       });
       return s;
+    },
+    // Roster characters in game right now (highest level first).
+    onlineChars() {
+      return (this.characters || [])
+        .filter((c) => this.isOnline(c.name))
+        .sort((a, b) => (b.level || 0) - (a.level || 0));
+    },
+    onlineCount() {
+      return this.onlineChars.length;
+    },
+    // Total guild /played + mains vs alts (main = top-level char per account).
+    activity() {
+      const chars = this.characters || [];
+      if (!chars.length) return null;
+      const totalSec = chars.reduce((n, c) => n + (c.played || 0), 0);
+      const best = {};
+      chars.forEach((c) => {
+        const k = c.token_id || c.id;
+        if (!best[k] || (c.level || 0) > best[k].level) best[k] = c;
+      });
+      const mains = Object.keys(best).length;
+      return { hours: Math.round(totalSec / 3600), mains, alts: chars.length - mains };
+    },
+    // 🥇🥈🥉 for the three highest item levels.
+    ilvlRanks() {
+      const sorted = [...(this.characters || [])].sort(
+        (a, b) => (b.ilvl || 0) - (a.ilvl || 0)
+      );
+      const m = {};
+      ["🥇", "🥈", "🥉"].forEach((e, i) => {
+        if (sorted[i]) m[sorted[i].id] = e;
+      });
+      return m;
+    },
+    // Sortable roster columns.
+    rosterCols() {
+      return [
+        { key: "name", label: "Character" },
+        { key: "race", label: "Race" },
+        { key: "class", label: "Class" },
+        { key: "level", label: "Lvl" },
+        { key: "ilvl", label: "iLvl" },
+        { key: "gold", label: "Gold" },
+        { key: "profs", label: "Professions" },
+        { key: "updated", label: "Updated" },
+      ];
+    },
+    // Filtered + sorted roster rows (search, class, online-only).
+    rosterRows() {
+      let rows = [...(this.characters || [])];
+      const q = this.rosterQuery.toLowerCase();
+      if (q) {
+        rows = rows.filter((c) =>
+          [c.name, c.last_name, c.race, c.class, c.spec, c.zone]
+            .join(" ")
+            .toLowerCase()
+            .includes(q)
+        );
+      }
+      if (this.rosterClass) rows = rows.filter((c) => c.class === this.rosterClass);
+      if (this.rosterOnlineOnly) rows = rows.filter((c) => this.isOnline(c.name));
+      const key = this.sortKey;
+      const dir = this.sortDir;
+      const val = (c) => {
+        switch (key) {
+          case "name": return this.fullName(c).toLowerCase();
+          case "race": return (c.race || "").toLowerCase();
+          case "class": return (c.class || "").toLowerCase();
+          case "profs": return (c.prof_levels || "").toLowerCase();
+          case "level": return c.level || 0;
+          case "ilvl": return c.ilvl || 0;
+          case "gold": return c.gold || 0;
+          case "updated": return new Date(c.updated_at).getTime() || 0;
+          default: return 0;
+        }
+      };
+      return rows.sort((a, b) => {
+        const x = val(a);
+        const y = val(b);
+        return (x < y ? -1 : x > y ? 1 : 0) * dir;
+      });
     },
     // Best skill level for the selected guide's profession (any character).
     guideSkill() {
@@ -2013,6 +2176,56 @@ export default {
     },
     isOnline(name) {
       return this.onlineSet.has(name);
+    },
+    // --- roster sort / filter ---------------------------------------------
+    sortBy(key) {
+      if (this.sortKey === key) {
+        this.sortDir = -this.sortDir;
+        return;
+      }
+      this.sortKey = key;
+      const text = ["name", "race", "class", "profs"].includes(key);
+      this.sortDir = text ? 1 : -1;
+    },
+    // "Cooking:175,Tailoring:127" → [{name, level}]
+    profChips(c) {
+      return (c.prof_levels || "")
+        .split(",")
+        .map((pair) => {
+          const [name, lvl] = pair.split(":");
+          return name && lvl ? { name: name.trim(), level: parseInt(lvl, 10) || 0 } : null;
+        })
+        .filter(Boolean);
+    },
+    // Not synced for over a week → warn in the Updated column.
+    isStale(c) {
+      const t = new Date(c.updated_at).getTime();
+      return t > 0 && Date.now() - t > 7 * 24 * 3600 * 1000;
+    },
+    // This character's share of the guild bank (%).
+    goldShare(c) {
+      if (!this.stats || !this.stats.total_gold || !c.gold) return 0;
+      return Math.round((c.gold / this.stats.total_gold) * 100);
+    },
+    // Plain-text roster for Discord / forum paste.
+    copyRoster() {
+      const lines = ["Munkeklubben roster — " + this.rosterRows.length + " characters"];
+      this.rosterRows.forEach((c) => {
+        const dot = this.isOnline(c.name) ? "🟢" : "⚪";
+        const profs = this.profChips(c)
+          .map((p) => p.name + " " + p.level)
+          .join(", ");
+        lines.push(
+          `${dot} ${this.fullName(c)} — Lvl ${c.level} ${c.race} ${c.class}` +
+            ` · iLvl ${Math.round(c.ilvl)}` +
+            (c.gold > 0 ? " · " + this.fmtMoney(c.gold) : "") +
+            (profs ? " · " + profs : "")
+        );
+      });
+      const text = lines.join("\n");
+      if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+      this.copiedRoster = true;
+      setTimeout(() => (this.copiedRoster = false), 1600);
     },
     // --- Guild Board -------------------------------------------------------
     async loadBoard() {
@@ -2849,6 +3062,96 @@ main {
   font-family: inherit;
 }
 
+/* who is in game right now */
+.online-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--stone);
+  border: 1px solid var(--edge);
+  border-left: 3px solid #7fd18a;
+  border-radius: 8px;
+  padding: 0.55rem 0.8rem;
+  margin-bottom: 0.9rem;
+}
+.os-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7fd18a;
+  font-weight: 700;
+  margin-right: 0.2rem;
+}
+.os-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem 0.15rem 0.2rem;
+}
+.os-chip .avatar { width: 26px; height: 26px; margin-right: 0; }
+.os-chip .avatar svg { width: 16px; height: 16px; }
+.os-chip .avatar img { padding: 2px; }
+.os-name { font-size: 0.82rem; font-weight: 700; }
+
+/* class composition chart */
+.classchart {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.45rem 1.2rem;
+  margin-bottom: 1rem;
+}
+.cc-row {
+  display: grid;
+  grid-template-columns: 88px 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+.cc-name { font-weight: 700; }
+.cc-track {
+  height: 8px;
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.cc-fill { height: 100%; border-radius: 999px; }
+.cc-count { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+
+/* roster tools: search + filters + copy */
+.roster-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+.rt-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  color: var(--ink);
+  padding: 0.35rem 0.9rem;
+  font: inherit;
+  font-size: 0.85rem;
+}
+.rt-search:focus { outline: none; border-color: var(--gold); }
+.rt-count {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.roster th { cursor: pointer; user-select: none; }
+.roster th:hover { color: var(--gold); }
+.roster th.sorted { color: var(--gold-bright); }
+.sort-arrow { font-size: 0.65rem; margin-left: 0.25rem; }
+
 /* ---------------- roster ---------------- */
 .roster {
   width: 100%;
@@ -3036,6 +3339,10 @@ main {
   gap: 0.5rem;
   min-width: 0;
 }
+/* slots hug the character render on both sides — the left column aligns
+   right (toward the viewer), the right column already sits next to it */
+.pd-left { align-items: flex-end; }
+.pd-right { align-items: flex-start; }
 .pd-center {
   display: flex;
   flex-direction: column;
@@ -4155,6 +4462,41 @@ details[open] > summary.guide-h4::after {
   font-size: 0.8rem;
 }
 
+/* level progress bar (to 60) */
+.lvl-bar {
+  height: 5px;
+  width: 56px;
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 0.2rem;
+}
+.lvl-fill { height: 100%; background: var(--gold); }
+
+/* iLvl medals, stale sync warning, profession chips */
+.medal { margin-right: 0.25rem; }
+.stale { color: #e0a34a; }
+.profs-cell { min-width: 150px; }
+.prof-chip {
+  display: inline-block;
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 0.08rem 0.5rem;
+  font-size: 0.72rem;
+  margin: 0.1rem 0.25rem 0.1rem 0;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.dash-sub { font-size: 0.72rem; color: var(--muted); }
+.dash-num.is-online { color: #7fd18a; }
+
+/* avatar ring glows green while the character is in game */
+.avatar.online {
+  box-shadow: 0 0 0 2px rgba(127, 209, 138, 0.65), 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
 /* class colours (via .c-<class> on name + class cells) */
 .c-warrior { color: #c79c6e; }
 .c-paladin { color: #f58cba; }
@@ -4315,6 +4657,10 @@ footer {
   .detail-row td { display: block; }
   .detail-row td::before { display: none; }
   .dash { grid-template-columns: repeat(2, 1fr); }
+  .roster-tools { gap: 0.4rem; }
+  .rt-count { margin-left: 0; width: 100%; }
+  .classchart { grid-template-columns: 1fr; }
+  .lvl-bar { width: 44px; }
 
   /* guides: rail becomes a horizontal scroll strip above the content */
   .guides-layout { grid-template-columns: 1fr; gap: 0.9rem; }

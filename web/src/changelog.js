@@ -2,6 +2,18 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.26",
+    date: "2026-11-19",
+    entries: [
+      "Roster: sort any column (click the header) plus search, class filter and an online-only toggle.",
+      "Roster: an 'In game now' strip with avatars, and a green ring on characters who are online.",
+      "Roster: gold per character, profession skill chips, level bars to 60, 🥇🥈🥉 on the top 3 iLvl, and a ⚠️ badge when a character hasn't synced in a week.",
+      "Roster: class composition chart with bars and percentages, plus a guild /played card (mains vs alts).",
+      "Roster: copy button — paste the whole roster into Discord or the forums.",
+      "Armory: fixed the left gear column spacing so both sides sit evenly against the 3D viewer.",
+    ],
+  },
+  {
     version: "0.8.25",
     date: "2026-11-19",
     entries: [
