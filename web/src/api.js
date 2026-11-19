@@ -9,7 +9,7 @@ async function get(path) {
 }
 
 // Bump on every release — shown in the footer so Emil can verify versions.
-export const WEB_VERSION = "0.8.12";
+export const WEB_VERSION = "0.8.13";
 
 export const api = {
   health: () => fetch("/health").then((r) => r.json()),
@@ -29,4 +29,7 @@ export const api = {
     }),
   characters: () => get("/characters"),
   stats: () => get("/stats"),
+  // 3D model block {race, gender, modelId, customizations, items} — proxied
+  // from the armory's API (their site sends no CORS headers).
+  charModel: (slug) => get("/charmodel/" + encodeURIComponent(slug)),
 };

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -12,6 +13,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,7 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.12"
+const version = "0.8.13"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -103,6 +105,12 @@ func main() {
 
 		// Item icons: lazy-fetched from wow.zamimg.com, cached forever on disk
 		api.GET("/icon/:name", func(c *gin.Context) { serveIcon(c) })
+
+		// 3D model: the character's model block + the wowhead modelviewer
+		// asset tree. Both upstreams send no CORS headers, so the browser
+		// gets them through us (assets cache forever, model data for 6h).
+		api.GET("/charmodel/:slug", func(c *gin.Context) { serveCharModel(c) })
+		api.GET("/mv/*path", func(c *gin.Context) { serveModelViewer(c) })
 
 		// Generic setup package (NO token inside) for the website Download button
 		api.GET("/download", func(c *gin.Context) { serveDownload(c) })
@@ -613,9 +621,12 @@ func fetchForeverIcon(fileID string) ([]byte, int) {
 
 // resolveItemIcon maps an itemID to its texture name via wowhead's public
 // tooltip API. The game client only gives us numbers, so this is the bridge.
+// dataEnv=16 (classicplus/Forever) is REQUIRED — without it wowhead 404s on
+// custom Forever items (verified: 281265 → 404 plain, 200 with dataEnv).
 func resolveItemIcon(itemID string) (string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest("GET", "https://nether.wowhead.com/tooltip/item/"+itemID, nil)
+	req, err := http.NewRequest("GET",
+		"https://nether.wowhead.com/tooltip/item/"+itemID+"?dataEnv=16&locale=0", nil)
 	if err != nil {
 		return "", err
 	}
@@ -700,6 +711,194 @@ func serveIcon(c *gin.Context) {
 		_ = os.WriteFile(path, data, 0644)
 	}
 	c.Data(http.StatusOK, "image/jpeg", data)
+}
+
+// --- 3D model (wowhead modelviewer) -----------------------------------------
+
+// charModelRe: slug is "First-Last" as sent by the addon — letters, digits,
+// hyphen (WoW names are alphanumeric; apostrophe allowed just in case).
+var charModelRe = regexp.MustCompile(`^[A-Za-z0-9'-]+$`)
+
+// serveCharModel proxies the armory's character API for the 3D model block
+// {race, gender, modelId, customizations, items}. Their API has no CORS
+// headers, so the browser can't fetch it directly. Cached 6h on disk; misses
+// are cached too ("notfound" marker) so unknown characters don't hammer them.
+func serveCharModel(c *gin.Context) {
+	slug := c.Param("slug")
+	if !charModelRe.MatchString(slug) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bad character name"})
+		return
+	}
+	dir := envOr("MUNKEHUB_MODELS", "charmodels")
+	cache := filepath.Join(dir, slug+".json")
+	const ttl = 6 * time.Hour
+
+	var stale []byte
+	if b, err := os.ReadFile(cache); err == nil {
+		if fi, err := os.Stat(cache); err == nil && time.Since(fi.ModTime()) < ttl {
+			c.Header("Cache-Control", "max-age=21600")
+			serveModelCache(c, b)
+			return
+		}
+		stale = b // expired — try a refresh, fall back to it if upstream fails
+	}
+
+	model, status, err := fetchCharModel(slug)
+	if err != nil {
+		if stale != nil {
+			serveModelCache(c, stale) // armory down — stale beats broken
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": "armory unreachable"})
+		return
+	}
+	if status == http.StatusNotFound || model == nil {
+		writeModelCache(cache, []byte(`{"notfound":true}`))
+		c.JSON(http.StatusNotFound, gin.H{"error": "character not found on the armory"})
+		return
+	}
+	b, _ := json.Marshal(model)
+	writeModelCache(cache, b)
+	c.Header("Cache-Control", "max-age=21600")
+	c.Data(http.StatusOK, "application/json", b)
+}
+
+func serveModelCache(c *gin.Context, b []byte) {
+	if bytes.Contains(b, []byte(`"notfound"`)) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "character not found on the armory"})
+		return
+	}
+	c.Data(http.StatusOK, "application/json", b)
+}
+
+// fetchCharModel asks the armory for one character and returns its "model"
+// block. Region is EU (all Munkeklubben chars); the realm slug in the URL is
+// ignored upstream — verified: any slug works, region must match.
+func fetchCharModel(slug string) (map[string]any, int, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("GET",
+		"https://armorywowforever.com/api/character/forever/eu/pvp_rp/"+url.PathEscape(slug), nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (MunkeHub)")
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		return nil, http.StatusNotFound, nil
+	}
+	if res.StatusCode != http.StatusOK {
+		return nil, res.StatusCode, fmt.Errorf("armory status %d", res.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, 2<<20))
+	if err != nil {
+		return nil, 0, err
+	}
+	var full struct {
+		Model json.RawMessage `json:"model"`
+	}
+	if err := json.Unmarshal(body, &full); err != nil {
+		return nil, 0, err
+	}
+	if len(full.Model) == 0 || string(full.Model) == "null" {
+		return nil, http.StatusNotFound, nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(full.Model, &m); err != nil {
+		return nil, 0, err
+	}
+	return m, http.StatusOK, nil
+}
+
+func writeModelCache(path string, b []byte) {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err == nil {
+		_ = os.WriteFile(path, b, 0644)
+	}
+}
+
+// mvPathRe: viewer asset paths (meta/…, m2/…, textures/…, bone/…, skin/…).
+// Strict on purpose — the path becomes a file path and an upstream URL.
+var mvPathRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_./-]*$`)
+
+// serveModelViewer proxies wowhead's modelviewer asset tree from zamimg (no
+// CORS headers there, so the viewer's XHRs must be same-origin). Asset paths
+// are immutable — cached forever on disk. Also serves the armory's stage
+// backdrop as "stage.png" (the viewer resolves background relative to
+// contentPath); if that upstream path ever changes, a 404 just means no
+// backdrop and the viewer handles it gracefully.
+func serveModelViewer(c *gin.Context) {
+	sub := strings.TrimPrefix(c.Param("path"), "/")
+	if sub == "" || strings.Contains(sub, "..") || !mvPathRe.MatchString(sub) {
+		c.String(http.StatusBadRequest, "bad path")
+		return
+	}
+	dir := envOr("MUNKEHUB_MV", "mv")
+	cache := filepath.Join(dir, filepath.FromSlash(sub))
+	if b, err := os.ReadFile(cache); err == nil {
+		c.Data(http.StatusOK, mvContentType(sub), b)
+		return
+	}
+
+	var upstreams []string
+	if sub == "stage.png" {
+		upstreams = []string{"https://armorywowforever.com/static/5ccec92c88/stage-forever.png"}
+	} else {
+		upstreams = []string{
+			// wowhead's own tree (what the armory mirrors)
+			"https://wow.zamimg.com/modelviewer/classicplus/" + sub,
+			// armory mirror — can be ahead for custom Forever items
+			"https://armorywowforever.com/modelviewer/v2/classicplus/" + sub,
+		}
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	var data []byte
+	for _, up := range upstreams {
+		req, err := http.NewRequest("GET", up, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (MunkeHub)")
+		res, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		b, _ := io.ReadAll(io.LimitReader(res.Body, 32<<20))
+		res.Body.Close()
+		if res.StatusCode == http.StatusOK && len(b) > 0 {
+			data = b
+			break
+		}
+	}
+	if data == nil {
+		c.String(http.StatusNotFound, "asset not found")
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(cache), 0755); err == nil {
+		_ = os.WriteFile(cache, data, 0644)
+	}
+	// Immutable asset paths — let the browser keep them forever.
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	c.Data(http.StatusOK, mvContentType(sub), data)
+}
+
+func mvContentType(p string) string {
+	switch strings.ToLower(filepath.Ext(p)) {
+	case ".json":
+		return "application/json"
+	case ".webp":
+		return "image/webp"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".js":
+		return "application/javascript"
+	default: // .m2, .skin, .bone, .anim — binary model data
+		return "application/octet-stream"
+	}
 }
 
 // --- download ---------------------------------------------------------------

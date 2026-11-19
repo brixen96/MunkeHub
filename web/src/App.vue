@@ -151,15 +151,19 @@
                         <div class="pd-col">
                           <div v-for="g in pdSlots(c, PD_LEFT)" :key="g.slot"
                                class="gear-slot" :class="['q' + g.q, { empty: !g.id }]"
-                               :title="g.name || g.slot">
-                            <img v-if="g.fid || g.id" class="gear-icon"
-                                 :src="'/api/v1/icon/' + (g.fid || g.id)" alt=""
-                                 loading="lazy" @error="$event.target.style.display = 'none'">
-                            <span v-if="g.ilvl" class="gear-badge">{{ g.ilvl }}</span>
+                               :title="g.id ? null : g.slot">
+                            <a v-if="g.id" class="gear-link" :href="wowheadUrl(g)"
+                               data-wowhead="" target="_blank" rel="noopener" @click.stop>
+                              <img class="gear-icon" :src="'/api/v1/icon/' + (g.fid || g.id)" alt=""
+                                   loading="lazy" @error="iconFallback($event, g)">
+                              <span v-if="g.ilvl" class="gear-badge">{{ g.ilvl }}</span>
+                            </a>
                           </div>
                         </div>
                         <div class="pd-center">
-                          <img v-if="renderSrc(c)" class="pd-render" :src="renderSrc(c)" alt=""
+                          <div v-if="viewerActive(c)" :id="'mv-' + c.id" class="pd-mv"
+                               :class="{ loading: viewerState[c.id] === 'loading' }"></div>
+                          <img v-else-if="renderSrc(c)" class="pd-render" :src="renderSrc(c)" alt=""
                                loading="lazy" @error="markRenderFail(c)">
                           <template v-else>
                             <img v-if="avatarSrc(c)" class="pd-avatar" :src="avatarSrc(c)" alt=""
@@ -170,21 +174,25 @@
                         <div class="pd-col">
                           <div v-for="g in pdSlots(c, PD_RIGHT)" :key="g.slot"
                                class="gear-slot" :class="['q' + g.q, { empty: !g.id }]"
-                               :title="g.name || g.slot">
-                            <img v-if="g.fid || g.id" class="gear-icon"
-                                 :src="'/api/v1/icon/' + (g.fid || g.id)" alt=""
-                                 loading="lazy" @error="$event.target.style.display = 'none'">
-                            <span v-if="g.ilvl" class="gear-badge">{{ g.ilvl }}</span>
+                               :title="g.id ? null : g.slot">
+                            <a v-if="g.id" class="gear-link" :href="wowheadUrl(g)"
+                               data-wowhead="" target="_blank" rel="noopener" @click.stop>
+                              <img class="gear-icon" :src="'/api/v1/icon/' + (g.fid || g.id)" alt=""
+                                   loading="lazy" @error="iconFallback($event, g)">
+                              <span v-if="g.ilvl" class="gear-badge">{{ g.ilvl }}</span>
+                            </a>
                           </div>
                         </div>
                         <div class="pd-bottom">
                           <div v-for="g in pdSlots(c, PD_BOTTOM)" :key="g.slot"
                                class="gear-slot" :class="['q' + g.q, { empty: !g.id }]"
-                               :title="g.name || g.slot">
-                            <img v-if="g.fid || g.id" class="gear-icon"
-                                 :src="'/api/v1/icon/' + (g.fid || g.id)" alt=""
-                                 loading="lazy" @error="$event.target.style.display = 'none'">
-                            <span v-if="g.ilvl" class="gear-badge">{{ g.ilvl }}</span>
+                               :title="g.id ? null : g.slot">
+                            <a v-if="g.id" class="gear-link" :href="wowheadUrl(g)"
+                               data-wowhead="" target="_blank" rel="noopener" @click.stop>
+                              <img class="gear-icon" :src="'/api/v1/icon/' + (g.fid || g.id)" alt=""
+                                   loading="lazy" @error="iconFallback($event, g)">
+                              <span v-if="g.ilvl" class="gear-badge">{{ g.ilvl }}</span>
+                            </a>
                           </div>
                         </div>
                       </div>
@@ -420,6 +428,11 @@ const CLASS_ICON_FID = {
   druid: 625999,
 };
 
+// 3D viewer state lives OUTSIDE Vue's reactivity: WebGL objects must never
+// be proxied. VIEWER_SCRIPT memoizes the (large) viewer script load.
+let VIEWER_SCRIPT = null;
+const VIEWERS = {};
+
 export default {
   name: "App",
   data() {
@@ -428,6 +441,8 @@ export default {
       PD_RIGHT,
       PD_BOTTOM,
       renderFailed: {},
+      // char id -> 'loading' | 'ready' | 'static' (3D viewer state)
+      viewerState: {},
       tab: "roster",
       openRow: null,
       stats: null,
@@ -537,7 +552,131 @@ export default {
       return '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">' + body + '</svg>';
     },
     toggleRow(id) {
-      this.openRow = this.openRow === id ? null : id;
+      if (this.openRow === id) {
+        this.closeViewer(id);
+        this.openRow = null;
+        return;
+      }
+      if (this.openRow !== null) this.closeViewer(this.openRow);
+      this.openRow = id;
+      const c = (this.characters || []).find((x) => x.id === id);
+      if (c) this.openViewer(c);
+    },
+    // --- 3D model viewer (wowhead ZamModelViewer — drag to rotate) ---------
+    viewerActive(c) {
+      const s = this.viewerState[c.id];
+      return s === "loading" || s === "ready";
+    },
+    wowheadUrl(g) {
+      return "https://www.wowhead.com/forever/item=" + g.id;
+    },
+    // Icon chain: fileID (foreverdb) first — if that 404s (some items are
+    // missing there), retry with the itemID (wowhead resolves the name).
+    // Second failure = hide the img, keep the quality border.
+    iconFallback(ev, g) {
+      const img = ev.target;
+      if (g.id && !img.dataset.triedId) {
+        img.dataset.triedId = "1";
+        img.src = "/api/v1/icon/" + g.id;
+        return;
+      }
+      img.style.display = "none";
+    },
+    webglAvailable() {
+      try {
+        const cv = document.createElement("canvas");
+        return !!(
+          window.WebGLRenderingContext &&
+          (cv.getContext("webgl") || cv.getContext("experimental-webgl"))
+        );
+      } catch (e) {
+        return false;
+      }
+    },
+    loadViewerScript() {
+      if (!VIEWER_SCRIPT) {
+        VIEWER_SCRIPT = new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          // wowhead's viewer, served through our asset proxy (their CDN
+          // sends no CORS headers — but a <script> tag wouldn't care; the
+          // proxy also covers every asset the viewer fetches via XHR).
+          s.src = "/api/v1/mv/deployment/viewer/35ee72d/viewer.min.js";
+          s.onload = () => resolve();
+          s.onerror = () => {
+            VIEWER_SCRIPT = null;
+            reject(new Error("viewer script failed"));
+          };
+          document.head.appendChild(s);
+        });
+      }
+      return VIEWER_SCRIPT;
+    },
+    async openViewer(c) {
+      if (this.viewerState[c.id]) return;
+      this.viewerState = { ...this.viewerState, [c.id]: "loading" };
+      if (!this.webglAvailable()) {
+        this.viewerState = { ...this.viewerState, [c.id]: "static" };
+        return;
+      }
+      try {
+        // The viewer expects Wowhead globals (tooltips.js defines WH but
+        // not all of these) — same shim the armory uses.
+        window.WH = window.WH || {};
+        window.WH.debug = window.WH.debug || function () {};
+        window.WH.defaultAnimation = window.WH.defaultAnimation || "Stand";
+        window.WH.WebP = window.WH.WebP || {
+          getImageExtension: function () { return ".webp"; },
+        };
+        await this.loadViewerScript();
+        const slug = c.last_name ? c.name + "-" + c.last_name : c.name;
+        const model = await api.charModel(slug);
+        if (this.openRow !== c.id || VIEWERS[c.id]) return;
+        await this.$nextTick();
+        const el = document.getElementById("mv-" + c.id);
+        if (!el || this.openRow !== c.id || VIEWERS[c.id]) return;
+        el.innerHTML = "";
+        const viewer = new window.ZamModelViewer({
+          type: 2, // Wowhead
+          contentPath: "/api/v1/mv/",
+          container: window.jQuery(el),
+          // guard against a zero-size container (viewer throws on aspect 0)
+          aspect: (el.clientWidth || 360) / (el.clientHeight || 400),
+          hd: false,
+          items: model.items || [],
+          models: { id: model.modelId, type: 16 },
+          charCustomization: { options: model.customizations || [] },
+          background: "stage.png", // resolved as contentPath + background
+          bgScale: [1, 1],
+        });
+        VIEWERS[c.id] = viewer;
+        this.viewerState = { ...this.viewerState, [c.id]: "ready" };
+      } catch (err) {
+        console.warn("MunkeHub 3D viewer:", err);
+        if (this.openRow === c.id) {
+          // fall back to the static Blizzard render
+          this.viewerState = { ...this.viewerState, [c.id]: "static" };
+        }
+      }
+    },
+    closeViewer(id) {
+      const v = VIEWERS[id];
+      if (v) {
+        try {
+          const gl = v.renderer && v.renderer.context;
+          v.destroy();
+          if (gl && gl.getExtension) {
+            gl.getExtension("WEBGL_lose_context").loseContext();
+          }
+        } catch (e) {
+          /* already gone */
+        }
+        delete VIEWERS[id];
+      }
+      if (this.viewerState[id]) {
+        const s = { ...this.viewerState };
+        delete s[id];
+        this.viewerState = s;
+      }
     },
     parseGear(c) {
       if (!c.detail) return [];
@@ -1140,6 +1279,34 @@ main {
   height: 48px;
 }
 
+/* 3D model viewer (wowhead ZamModelViewer) — drag to rotate, scroll to zoom */
+.pd-mv {
+  width: 360px;
+  height: 400px;
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 35%, #26252d 0%, #141318 78%);
+}
+.pd-mv.loading::after {
+  content: "Summoning 3D model…";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+/* gear icon link: fills the slot, wowhead tooltip on hover */
+.gear-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
 /* square icon slots with quality border + ilvl badge (armory look) */
 .gear-slot {
   position: relative;
@@ -1370,6 +1537,7 @@ footer {
   .paperdoll { grid-template-columns: 1fr; }
   .pd-center { order: -1; min-width: 0; min-height: 0; }
   .pd-render { max-height: 260px; }
+  .pd-mv { width: 100%; height: 260px; }
   .pd-avatar { width: 72px; height: 72px; }
   .pd-bottom { justify-content: flex-start; flex-wrap: wrap; }
   .ah-name { font-size: 1.2rem; }

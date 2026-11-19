@@ -5,6 +5,12 @@ api/*.db
 # Node
 node_modules/
 web/dist/
+web/devserver.log
+
+# API caches (icons + 3D model assets, lazy-fetched from upstreams)
+api/icons/
+api/mv/
+api/charmodels/
 
 # Build logs
 build-push.log

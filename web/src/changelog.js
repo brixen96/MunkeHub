@@ -2,6 +2,14 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.13",
+    date: "2026-11-18",
+    entries: [
+      "Gear icons now show WoW item tooltips on hover (Wowhead data — works for custom Forever items).",
+      "The 3D character model is interactive: drag to rotate, scroll to zoom — same viewer as the armory.",
+    ],
+  },
+  {
     version: "0.8.12",
     date: "2026-11-18",
     entries: [

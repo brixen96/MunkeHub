@@ -4,6 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MunkeHub — Munkeklubben</title>
+    <!-- Wowhead tooltip widget — same setup as armorywowforever.com:
+         plain links, rich item tooltip on hover, no link restyling.
+         Must load before the app bundle (synchronous, like the armory). -->
+    <script>
+      window.whTooltips = { colorLinks: false, iconizeLinks: false, renameLinks: false };
+    </script>
+    <script src="https://wow.zamimg.com/js/tooltips.js"></script>
   </head>
   <body>
     <noscript>

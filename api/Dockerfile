@@ -14,8 +14,8 @@ COPY --from=build /munkehub-api .
 # exe for self-updates (build them first: scripts/build-download.ps1)
 COPY download/ ./download/
 COPY helper/ ./helper/
-# Item icon cache (lazy-fetched from zamimg, persisted via volume)
-RUN mkdir -p /app/icons
+# Cache dirs (icons + 3D model assets, lazy-fetched and persisted on disk)
+RUN mkdir -p /app/icons /app/mv /app/charmodels
 ENV MUNKEHUB_PORT=8080 \
     MUNKEHUB_DB=/data/munkehub.db
 VOLUME /data
