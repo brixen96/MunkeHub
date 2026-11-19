@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/cookiejar"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -521,6 +522,30 @@ func ahCrafting(c *gin.Context, db *sql.DB) {
 	if !found {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "crafting data not polled yet"})
 		return
+	}
+
+	// sort=roi ranks by profit × sold/24h (real demand × margin) — the
+	// default upstream order is raw profit, which favors slow sellers.
+	if c.Query("sort") == "roi" {
+		type craftRow struct {
+			raw   json.RawMessage
+			score float64
+		}
+		rows := make([]craftRow, 0, len(recipes))
+		for _, r := range recipes {
+			var f struct {
+				Profit float64 `json:"profit_copper"`
+				Sold   int64   `json:"possible_24h"`
+			}
+			_ = json.Unmarshal(r, &f)
+			rows = append(rows, craftRow{r, f.Profit * float64(f.Sold)})
+		}
+		sort.SliceStable(rows, func(i, j int) bool {
+			return rows[i].score > rows[j].score
+		})
+		for i, rw := range rows {
+			recipes[i] = rw.raw
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

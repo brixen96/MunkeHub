@@ -2,6 +2,14 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.21",
+    date: "2026-11-19",
+    entries: [
+      "Auction House: Money makers — flipping opportunities ranked by daily profit, plus vendor snipes (buy below vendor price).",
+      "Crafting: sort by demand × profit to see what actually sells, not just what looks profitable.",
+    ],
+  },
+  {
     version: "0.8.20",
     date: "2026-11-19",
     entries: [

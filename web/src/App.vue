@@ -641,6 +641,77 @@
               </details>
             </div>
 
+            <!-- ---------- Money makers ---------- -->
+            <div v-if="ahTab === 'money'" class="guide">
+              <details class="gsec" open>
+                <summary class="guide-h4">
+                  Flipping — buy low now, resell at the usual price
+                </summary>
+                <p class="ah-note">
+                  Ranked by expected daily profit (margin × sold in 24h), after
+                  the auction house cut. ⚠️ rows lean on the 7-day baseline —
+                  double-check before buying big.
+                </p>
+                <p v-if="!ahFlips.length" class="muted">No safe flips right now.</p>
+                <table v-else class="guide-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th><th class="num">Buy now</th><th class="num">Resell at</th>
+                      <th class="num">Profit each</th><th class="num">/day</th><th class="num">Sold 24h</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="f in ahFlips" :key="f.item_id">
+                      <td class="ah-item">
+                        <button class="star" :class="{ on: watchSet.has(f.item_id) }"
+                                :title="watchSet.has(f.item_id) ? 'Remove from watchlist' : 'Add to watchlist'"
+                                @click="toggleWatch(f.item_id)">★</button>
+                        <img :src="f.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
+                        <a :href="wowheadItem(f.item_id)" data-wowhead="" target="_blank" rel="noopener">{{ f.name }}</a>
+                        <span class="ah-sub">−{{ Math.round(f.discount * 100) }}%</span>
+                      </td>
+                      <td class="num nowrap">{{ fmtMoney(f.buy_copper) }}</td>
+                      <td class="num nowrap muted">{{ fmtMoney(f.sell_copper) }}</td>
+                      <td class="num nowrap ah-gold">{{ fmtMoney(f.profit_each) }}</td>
+                      <td class="num nowrap ah-gold">{{ fmtMoney(f.daily_profit) }}</td>
+                      <td class="num">{{ fmtNum(f.sold_24h) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </details>
+
+              <details class="gsec" open>
+                <summary class="guide-h4">
+                  Vendor snipes — guaranteed profit, no auctioning
+                </summary>
+                <p class="ah-note">
+                  Cheapest listing is below what a vendor pays: buy → sell to a
+                  vendor → instant gold.
+                </p>
+                <p v-if="!ahSnipes.length" class="muted">Nothing under vendor price right now.</p>
+                <table v-else class="guide-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th><th class="num">Buy now</th><th class="num">Vendor pays</th>
+                      <th class="num">Profit each</th><th class="num">All ({{ fmtNum(ahSnipesUnits) }} units)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="s in ahSnipes" :key="s.item_id">
+                      <td class="ah-item">
+                        <img :src="s.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
+                        <a :href="wowheadItem(s.item_id)" data-wowhead="" target="_blank" rel="noopener">{{ s.name }}</a>
+                      </td>
+                      <td class="num nowrap">{{ fmtMoney(s.buy_copper) }}</td>
+                      <td class="num nowrap muted">{{ fmtMoney(s.vendor_copper) }}</td>
+                      <td class="num nowrap ah-gold">{{ fmtMoney(s.profit_each) }}</td>
+                      <td class="num nowrap ah-gold">{{ fmtMoney(s.total_profit) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </details>
+            </div>
+
             <!-- ---------- Watchlist ---------- -->
             <div v-if="ahTab === 'watch'" class="guide">
               <details class="gsec" open>
@@ -701,6 +772,12 @@
                 </summary>
                 <p class="ah-note">
                   Profit = cheapest sell price minus reagent cost, per craft.
+                  <span class="ah-days">
+                    <button class="chip" :class="{ active: ahCraftSort === 'profit' }"
+                            @click="setCraftSort('profit')">By profit</button>
+                    <button class="chip" :class="{ active: ahCraftSort === 'roi' }"
+                            @click="setCraftSort('roi')">By demand × profit</button>
+                  </span>
                 </p>
                 <table class="guide-table">
                   <thead>
@@ -1006,6 +1083,11 @@ export default {
       // price history + watchlist (⭐)
       ahWatch: [],
       ahHist: {}, // item_id -> [{t, min}] (7-day sparkline points)
+      // money makers (flips + vendor snipes)
+      ahFlips: [],
+      ahSnipes: [],
+      // crafting sort: "profit" (upstream default) | "roi" (profit × sold)
+      ahCraftSort: "profit",
       guildError: false,
       announcements: null,
       annError: false,
@@ -1063,6 +1145,7 @@ export default {
         { id: "sell", name: "Best to sell" },
         { id: "listings", name: "Listings" },
         { id: "crafting", name: "Crafting" },
+        { id: "money", name: "Money makers" },
         { id: "watch", name: `Watchlist${this.ahWatch.length ? " (" + this.ahWatch.length + ")" : ""}` },
       ];
     },
@@ -1081,6 +1164,10 @@ export default {
     },
     ahCraftRows() {
       return (this.ahCraft && this.ahCraft.recipes ? this.ahCraft.recipes : []).slice(0, 50);
+    },
+    // total units available across all vendor snipes (for the "All" column)
+    ahSnipesUnits() {
+      return this.ahSnipes.reduce((n, s) => n + (s.units || 0), 0);
     },
     // Union of every roster character's professions (synced by the addon).
     guildProfs() {
@@ -1117,7 +1204,19 @@ export default {
       if (id === "sell" && !this.ahSales) this.loadSales("1");
       if (id === "listings" && !this.ahListings) this.searchListings();
       if (id === "crafting" && !this.ahCraft) this.loadCrafting(this.ahCraftProf);
+      if (id === "money" && !this.ahFlips.length && !this.ahSnipes.length) this.loadMoney();
       if (id === "watch") this.loadWatch();
+    },
+    // Money makers: flips + vendor snipes (two parallel calls, no cache needed).
+    async loadMoney() {
+      try {
+        const [flips, snipes] = await Promise.all([api.ahFlips(), api.ahVendorSnipes()]);
+        this.ahFlips = flips.items || [];
+        this.ahSnipes = snipes.items || [];
+      } catch {
+        this.ahFlips = [];
+        this.ahSnipes = [];
+      }
     },
     // --- price history + watchlist ------------------------------------
     // One batched request for up to 60 sparklines (server downsamples to 40).
@@ -1202,13 +1301,19 @@ export default {
     async loadCrafting(prof) {
       this.ahCraftProf = prof;
       try {
-        this.ahCraft = await api.ahCrafting(prof);
+        this.ahCraft = await api.ahCrafting(prof, this.ahCraftSort);
         if (!this.ahCraftProfs.length && this.ahCraft.professions) {
           this.ahCraftProfs = this.ahCraft.professions;
         }
       } catch {
         this.ahCraft = null;
       }
+    },
+    // Toggle crafting sort: raw profit vs profit × sold/24h (real demand).
+    setCraftSort(s) {
+      if (this.ahCraftSort === s) return;
+      this.ahCraftSort = s;
+      this.loadCrafting(this.ahCraftProf);
     },
     // Copper → "1g 23s 45c" (gold hidden below 1g, like the game).
     fmtMoney(copper) {

@@ -25,7 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.20"
+const version = "0.8.21"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -143,6 +143,10 @@ func main() {
 		// MunkeHub AI advisor: cleaned market digest → OpenRouter → advice.
 		// Cached 6h; ?refresh=1 forces a new LLM call.
 		api.GET("/ah/advice", func(c *gin.Context) { ahAdviceHandler(c, db) })
+
+		// Money makers: flipping opportunities + vendor snipes (pure math)
+		api.GET("/ah/flips", func(c *gin.Context) { ahFlips(c, db) })
+		api.GET("/ah/vendor-snipes", func(c *gin.Context) { ahVendorSnipes(c, db) })
 
 		// Price history (7-day snapshots, hourly) + guild watchlist (⭐)
 		api.GET("/ah/history", func(c *gin.Context) { ahHistory(c, db) })
