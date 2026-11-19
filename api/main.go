@@ -25,7 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.19"
+const version = "0.8.20"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -143,6 +143,12 @@ func main() {
 		// MunkeHub AI advisor: cleaned market digest → OpenRouter → advice.
 		// Cached 6h; ?refresh=1 forces a new LLM call.
 		api.GET("/ah/advice", func(c *gin.Context) { ahAdviceHandler(c, db) })
+
+		// Price history (7-day snapshots, hourly) + guild watchlist (⭐)
+		api.GET("/ah/history", func(c *gin.Context) { ahHistory(c, db) })
+		api.GET("/ah/watchlist", func(c *gin.Context) { ahWatchlistList(c, db) })
+		api.POST("/ah/watchlist", func(c *gin.Context) { ahWatchlistAdd(c, db) })
+		api.DELETE("/ah/watchlist/:id", func(c *gin.Context) { ahWatchlistRemove(c, db) })
 	}
 
 	// Auction House poller: refreshes the cache hourly, once shortly after boot.
@@ -194,6 +200,22 @@ func migrate(db *sql.DB) error {
 			key        TEXT PRIMARY KEY,
 			body       TEXT NOT NULL,
 			fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE IF NOT EXISTS ah_snapshots (
+			item_id    INTEGER NOT NULL,
+			captured_at TEXT NOT NULL,
+			min_copper REAL NOT NULL DEFAULT 0,
+			avg_copper REAL NOT NULL DEFAULT 0,
+			units      INTEGER NOT NULL DEFAULT 0,
+			sold_24h   INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (item_id, captured_at)
+		);
+		CREATE INDEX IF NOT EXISTS idx_snapshots_time ON ah_snapshots (captured_at);
+		CREATE TABLE IF NOT EXISTS ah_watchlist (
+			item_id  INTEGER PRIMARY KEY,
+			name     TEXT NOT NULL,
+			icon     TEXT NOT NULL DEFAULT '',
+			added_at TEXT NOT NULL DEFAULT (datetime('now'))
 		);`)
 	if err != nil {
 		return err

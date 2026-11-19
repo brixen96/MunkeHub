@@ -2,6 +2,14 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.20",
+    date: "2026-11-19",
+    entries: [
+      "Auction House: star items (★) to a personal watchlist with current price, deal status and a 7-day price trend.",
+      "Auction House: 7-day sparklines on Deals and Listings — fake price spikes are visible at a glance.",
+    ],
+  },
+  {
     version: "0.8.19",
     date: "2026-11-19",
     entries: [

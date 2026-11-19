@@ -523,12 +523,15 @@
                   <thead>
                     <tr>
                       <th>Item</th><th class="num">Now</th><th class="num">Usual (7d)</th>
-                      <th class="num">Under</th><th class="num">Sold 24h</th>
+                      <th class="num">Under</th><th class="num">7-day trend</th><th class="num">Sold 24h</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="d in ahDealRows" :key="d.item_id">
                       <td class="ah-item">
+                        <button class="star" :class="{ on: watchSet.has(d.item_id) }"
+                                :title="watchSet.has(d.item_id) ? 'Remove from watchlist' : 'Add to watchlist'"
+                                @click="toggleWatch(d.item_id)">★</button>
                         <img :src="d.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
                         <a :href="wowheadItem(d.item_id)" data-wowhead="" target="_blank" rel="noopener">{{ d.name }}</a>
                       </td>
@@ -536,6 +539,11 @@
                         <span v-if="d.suspicious" class="ah-warn" :title="d.note">⚠️</span></td>
                       <td class="num nowrap muted">{{ fmtMoney(d.usual_copper) }}</td>
                       <td class="num ah-under">−{{ Math.round(d.discount * 100) }}%</td>
+                      <td class="num ah-sparkcell">
+                        <svg class="spark" viewBox="0 0 60 18" preserveAspectRatio="none" aria-hidden="true">
+                          <polyline :points="sparkPath(ahHist[d.item_id])" />
+                        </svg>
+                      </td>
                       <td class="num">{{ fmtNum(d.possible_24h) }}</td>
                     </tr>
                   </tbody>
@@ -599,12 +607,15 @@
                   <thead>
                     <tr>
                       <th>Item</th><th class="num">For sale</th><th class="num">Cheapest</th>
-                      <th class="num">Avg price</th><th class="num">Sold 24h</th>
+                      <th class="num">Avg price</th><th class="num">7-day trend</th><th class="num">Sold 24h</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="i in ahListingRows" :key="i.id">
                       <td class="ah-item">
+                        <button class="star" :class="{ on: watchSet.has(i.id) }"
+                                :title="watchSet.has(i.id) ? 'Remove from watchlist' : 'Add to watchlist'"
+                                @click="toggleWatch(i.id)">★</button>
                         <img :src="i.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
                         <a :href="wowheadItem(i.id)" data-wowhead="" target="_blank" rel="noopener">{{ i.name }}</a>
                         <span class="ah-sub">{{ i.class_name }}<template v-if="i.subclass"> · {{ i.subclass }}</template></span>
@@ -613,6 +624,11 @@
                       <td class="num nowrap" :class="{ 'ah-below': i.below_vendor }">{{ fmtMoney(i.min_copper) }}</td>
                       <td class="num nowrap muted">{{ fmtMoney(i.avg_copper) }}
                         <span v-if="i.suspicious" class="ah-warn" title="average is skewed — someone listed far too high">⚠️</span></td>
+                      <td class="num ah-sparkcell">
+                        <svg class="spark" viewBox="0 0 60 18" preserveAspectRatio="none" aria-hidden="true">
+                          <polyline :points="sparkPath(ahHist[i.id])" />
+                        </svg>
+                      </td>
                       <td class="num">{{ fmtNum(i.sold_24h) }}</td>
                     </tr>
                   </tbody>
@@ -622,6 +638,53 @@
                   Showing the hottest {{ ahListings.items.length }} of {{ fmtNum(ahListings.total) }} tracked items —
                   search above to find anything else.
                 </p>
+              </details>
+            </div>
+
+            <!-- ---------- Watchlist ---------- -->
+            <div v-if="ahTab === 'watch'" class="guide">
+              <details class="gsec" open>
+                <summary class="guide-h4">
+                  Watchlist — {{ ahWatch.length }} item{{ ahWatch.length === 1 ? "" : "s" }}
+                </summary>
+                <p class="ah-note">
+                  Star items in Deals or Listings to track them here. The trend
+                  shows the cheapest price over the last 7 days — a spike means
+                  someone listed far too high.
+                </p>
+                <p v-if="!ahWatch.length" class="muted">
+                  Nothing watched yet — click ★ on any item.
+                </p>
+                <table v-else class="guide-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th><th class="num">Cheapest now</th><th class="num">Avg</th>
+                      <th class="num">7-day trend</th><th class="num">Sold 24h</th><th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="w in ahWatch" :key="w.item_id">
+                      <td class="ah-item">
+                        <img :src="w.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
+                        <a :href="wowheadItem(w.item_id)" data-wowhead="" target="_blank" rel="noopener">{{ w.name }}</a>
+                        <span v-if="w.in_deals" class="ah-dealbadge">−{{ Math.round(w.discount * 100) }}%</span>
+                      </td>
+                      <td class="num nowrap">{{ fmtMoney(w.min_copper) }}
+                        <span v-if="w.suspicious" class="ah-warn" title="average is skewed — someone listed far too high">⚠️</span></td>
+                      <td class="num nowrap muted">{{ fmtMoney(w.avg_copper) }}</td>
+                      <td class="num ah-sparkcell">
+                        <svg class="spark" viewBox="0 0 60 18" preserveAspectRatio="none" aria-hidden="true">
+                          <polyline :points="sparkPath(w.points)" />
+                        </svg>
+                      </td>
+                      <td class="num">{{ fmtNum(w.sold_24h) }}</td>
+                      <td class="num">
+                        <button class="star on" title="Remove from watchlist"
+                                @click="toggleWatch(w.item_id)">★</button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </details>
             </div>
 
@@ -940,6 +1003,9 @@ export default {
       ahAdvice: null,
       ahAdviceLoading: false,
       ahAdviceError: "",
+      // price history + watchlist (⭐)
+      ahWatch: [],
+      ahHist: {}, // item_id -> [{t, min}] (7-day sparkline points)
       guildError: false,
       announcements: null,
       annError: false,
@@ -983,6 +1049,7 @@ export default {
     // Auction House: load the default section (deals) + overview + AI advice.
     this.loadAh();
     this.loadAdvice(false);
+    this.loadWatch();
   },
   computed: {
     // Guides tab: only the profession picked in the chip selector shows.
@@ -996,7 +1063,12 @@ export default {
         { id: "sell", name: "Best to sell" },
         { id: "listings", name: "Listings" },
         { id: "crafting", name: "Crafting" },
+        { id: "watch", name: `Watchlist${this.ahWatch.length ? " (" + this.ahWatch.length + ")" : ""}` },
       ];
+    },
+    // Set of watched item ids — for the ★ state in every table.
+    watchSet() {
+      return new Set(this.ahWatch.map((w) => w.item_id));
     },
     ahDealRows() {
       return (this.ahDeals && this.ahDeals.items ? this.ahDeals.items : []).slice(0, 50);
@@ -1034,6 +1106,8 @@ export default {
         this.ahDeals = await api.ahDeals();
         this.ahStatus = await api.ahStatus().catch(() => null);
         this.ahError = false;
+        // sparklines for the deals table (one batched request)
+        this.loadHistory(this.ahDealRows.map((d) => d.item_id));
       } catch {
         this.ahError = true;
       }
@@ -1043,6 +1117,56 @@ export default {
       if (id === "sell" && !this.ahSales) this.loadSales("1");
       if (id === "listings" && !this.ahListings) this.searchListings();
       if (id === "crafting" && !this.ahCraft) this.loadCrafting(this.ahCraftProf);
+      if (id === "watch") this.loadWatch();
+    },
+    // --- price history + watchlist ------------------------------------
+    // One batched request for up to 60 sparklines (server downsamples to 40).
+    async loadHistory(ids) {
+      const missing = ids.filter((id) => !this.ahHist[id]);
+      if (!missing.length) return;
+      try {
+        const res = await api.ahHistory(missing.slice(0, 60));
+        this.ahHist = { ...this.ahHist, ...res.points };
+      } catch {
+        /* sparklines are decoration — no error state needed */
+      }
+    },
+    async loadWatch() {
+      try {
+        const res = await api.ahWatchlist();
+        this.ahWatch = res.items || [];
+      } catch {
+        this.ahWatch = [];
+      }
+    },
+    async toggleWatch(id) {
+      const watched = this.watchSet.has(id);
+      try {
+        if (watched) {
+          await api.ahWatchRemove(id);
+          this.ahWatch = this.ahWatch.filter((w) => w.item_id !== id);
+        } else {
+          await api.ahWatchAdd(id);
+          await this.loadWatch();
+        }
+      } catch {
+        /* friends-only site — ignore, next load resyncs */
+      }
+    },
+    // Sparkline polyline points from [{t, min}] — flat line when no history.
+    sparkPath(points) {
+      if (!points || points.length < 2) return "0,9 60,9";
+      const mins = points.map((p) => p.min);
+      const lo = Math.min(...mins);
+      const hi = Math.max(...mins);
+      const span = hi - lo || 1;
+      return points
+        .map((p, i) => {
+          const x = (i / (points.length - 1)) * 60;
+          const y = 17 - ((p.min - lo) / span) * 16;
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(" ");
     },
     async loadSales(days) {
       this.ahSalesDays = days;
@@ -1070,6 +1194,7 @@ export default {
     async searchListings() {
       try {
         this.ahListings = await api.ahListings(this.ahQuery, 1, 50);
+        this.loadHistory(this.ahListingRows.map((i) => i.id));
       } catch {
         this.ahListings = null;
       }
@@ -2388,6 +2513,51 @@ details[open] > summary.guide-h4::after {
 .ah-warn {
   cursor: help;
   margin-left: 0.25rem;
+}
+/* watchlist star */
+.star {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0 0.15rem 0 0;
+  flex: none;
+}
+.star:hover {
+  color: var(--gold);
+}
+.star.on {
+  color: var(--gold-bright);
+}
+/* 7-day sparkline */
+.ah-sparkcell {
+  width: 72px;
+}
+.spark {
+  display: block;
+  width: 60px;
+  height: 18px;
+  margin-left: auto;
+}
+.spark polyline {
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.ah-dealbadge {
+  background: rgba(127, 209, 138, 0.15);
+  border: 1px solid rgba(127, 209, 138, 0.5);
+  border-radius: 4px;
+  color: #7fd18a;
+  font-size: 0.7rem;
+  font-weight: 700;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.3rem;
 }
 .ah-credit a {
   color: var(--muted);

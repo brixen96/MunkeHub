@@ -9,7 +9,7 @@ async function get(path) {
 }
 
 // Bump on every release — shown in the footer so Emil can verify versions.
-export const WEB_VERSION = "0.8.19";
+export const WEB_VERSION = "0.8.20";
 
 export const api = {
   health: () => fetch("/health").then((r) => r.json()),
@@ -48,4 +48,22 @@ export const api = {
   ahStatus: () => get("/ah/status"),
   // MunkeHub AI advisor — cached 6h server-side; refresh=1 forces a new call.
   ahAdvice: (refresh = false) => get(`/ah/advice${refresh ? "?refresh=1" : ""}`),
+  // Price history: batched sparkline points for up to 60 items.
+  ahHistory: (ids) => get(`/ah/history?ids=${ids.join(",")}`),
+  // Guild watchlist (⭐) — friends-only site, no auth by design.
+  ahWatchlist: () => get("/ah/watchlist"),
+  ahWatchAdd: (id) =>
+    fetch(`/api/v1/ah/watchlist`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ item_id: id }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(`POST failed: ${res.status}`);
+      return res.json();
+    }),
+  ahWatchRemove: (id) =>
+    fetch(`/api/v1/ah/watchlist/${id}`, { method: "DELETE" }).then(async (res) => {
+      if (!res.ok) throw new Error(`DELETE failed: ${res.status}`);
+      return res.json();
+    }),
 };

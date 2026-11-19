@@ -199,7 +199,8 @@ func (p *ahPoller) poll() {
 	}
 
 	ok, fail := 0, 0
-	stop := false // set on 429 — abandon the rest of the cycle
+	stop := false    // set on 429 — abandon the rest of the cycle
+	itemsOK := false // items pages refreshed — safe to snapshot prices
 	save := func(key, path string) {
 		if stop {
 			return
@@ -238,10 +239,12 @@ func (p *ahPoller) poll() {
 		if maxPages := ahMaxItems / ahPageSize; pages > maxPages {
 			pages = maxPages
 		}
+		before := fail
 		for page := 1; page <= pages; page++ {
 			save(fmt.Sprintf("items:%d", page),
 				fmt.Sprintf("%s/items?sort=sold&dir=desc&limit=%d&page=%d", ahAPI, ahPageSize, page))
 		}
+		itemsOK = !stop && fail == before
 	}
 
 	// Crafting: every profession, every page (per=100 is the upstream max).
@@ -257,6 +260,13 @@ func (p *ahPoller) poll() {
 						ahAPI, prof, ahPageSize, page))
 			}
 		}
+	}
+
+	// price snapshots: one row per item per poll (hourly) — powers
+	// sparklines + the watchlist. Only when the items pages were FRESH this
+	// cycle — otherwise we'd stamp stale prices with a new timestamp.
+	if itemsOK {
+		p.snapshotItems()
 	}
 
 	ah.mu.Lock()
