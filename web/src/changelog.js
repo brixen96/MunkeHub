@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.17",
+    date: "2026-11-19",
+    entries: [
+      "Guides: profession selector chips + collapsible sections (ranks, shopping list, route, trainers).",
+    ],
+  },
+  {
     version: "0.8.16",
     date: "2026-11-19",
     entries: [

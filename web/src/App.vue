@@ -251,7 +251,13 @@
       <section v-show="tab === 'guides'">
         <div class="panel">
           <h2 class="panel-title">Profession Guides <span class="hint">— WoW: Forever</span></h2>
-          <div v-for="g in guides" :key="g.id" class="guide">
+          <!-- profession selector -->
+          <div class="guide-chips">
+            <button v-for="g in guides" :key="g.id" class="chip"
+                    :class="{ active: guideSel === g.id }"
+                    @click="guideSel = g.id">{{ g.name }}</button>
+          </div>
+          <div v-for="g in visibleGuides" :key="g.id" class="guide">
             <div class="guide-head">
               <img class="guide-icon" :src="'/api/v1/icon/' + g.icon" alt=""
                    loading="lazy" @error="$event.target.style.display = 'none'">
@@ -262,8 +268,8 @@
             </div>
 
             <!-- ranks (only some guides have them) -->
-            <template v-if="g.ranks && g.ranks.length">
-              <h4 class="guide-h4">Training & Ranks</h4>
+            <details v-if="g.ranks && g.ranks.length" class="gsec" open>
+              <summary class="guide-h4">Training & Ranks</summary>
               <table class="guide-table">
                 <thead>
                   <tr><th>Rank</th><th>Skill range</th><th>Skill needed</th><th>Level</th></tr>
@@ -275,11 +281,11 @@
                   </tr>
                 </tbody>
               </table>
-            </template>
+            </details>
 
             <!-- shopping list -->
-            <template v-if="g.shopping && g.shopping.length">
-              <h4 class="guide-h4">Shopping List</h4>
+            <details v-if="g.shopping && g.shopping.length" class="gsec" open>
+              <summary class="guide-h4">Shopping List</summary>
               <div class="shop-grid">
                 <div v-for="s in g.shopping" :key="s.range" class="shop-card">
                   <span class="shop-range">{{ s.range }}</span>
@@ -292,11 +298,11 @@
                   </ul>
                 </div>
               </div>
-            </template>
+            </details>
 
             <!-- leveling steps (crafting professions) -->
-            <template v-if="g.steps && g.steps.length">
-              <h4 class="guide-h4">Leveling Route</h4>
+            <details v-if="g.steps && g.steps.length" class="gsec" open>
+              <summary class="guide-h4">Leveling Route</summary>
               <div v-for="st in g.steps" :key="st.range" class="step">
                 <div class="step-head">{{ st.range }}</div>
                 <p v-if="st.note" class="step-note">{{ st.note }}</p>
@@ -324,11 +330,11 @@
                   </tbody>
                 </table>
               </div>
-            </template>
+            </details>
 
             <!-- gathering route (mining/herbalism/skinning/fishing) -->
-            <template v-if="g.gathering && g.gathering.length">
-              <h4 class="guide-h4">Leveling Route</h4>
+            <details v-if="g.gathering && g.gathering.length" class="gsec" open>
+              <summary class="guide-h4">Leveling Route</summary>
               <div v-for="st in g.gathering" :key="st.range" class="step">
                 <div class="step-head">{{ st.range }}</div>
                 <p v-if="st.note" class="step-note">{{ st.note }}</p>
@@ -340,22 +346,22 @@
                   </tbody>
                 </table>
               </div>
-            </template>
+            </details>
 
             <!-- notable items -->
-            <template v-if="g.items && g.items.length">
-              <h4 class="guide-h4">Worth Knowing</h4>
+            <details v-if="g.items && g.items.length" class="gsec" open>
+              <summary class="guide-h4">Worth Knowing</summary>
               <ul class="guide-notes">
                 <li v-for="it in g.items" :key="it.id">
                   <a :href="wowheadItem(it.id)" data-wowhead="" target="_blank" rel="noopener">{{ it.name }}</a>
                   — {{ it.note }}
                 </li>
               </ul>
-            </template>
+            </details>
 
             <!-- trainers: generic sections (new shape) -->
-            <template v-if="g.trainers && g.trainers.sections">
-              <h4 class="guide-h4">Trainers</h4>
+            <details v-if="g.trainers && g.trainers.sections" class="gsec" open>
+              <summary class="guide-h4">Trainers</summary>
               <div v-for="(sec, si) in g.trainers.sections" :key="si" class="trainer-sec">
                 <h5 v-if="sec.title" class="trainer-h5">{{ sec.title }}</h5>
                 <p v-for="(n, ni) in sec.notes" :key="'n' + ni" class="step-note">{{ n }}</p>
@@ -370,10 +376,10 @@
                   </tbody>
                 </table>
               </div>
-            </template>
+            </details>
             <!-- trainers: old shape (cooking) -->
-            <template v-else-if="g.trainers">
-              <h4 class="guide-h4">Trainers</h4>
+            <details v-else class="gsec" open>
+              <summary class="guide-h4">Trainers</summary>
               <div class="trainer-cols">
                 <div>
                   <h5 class="trainer-h5">Alliance — Apprentice / Journeyman</h5>
@@ -420,7 +426,7 @@
                   </tr>
                 </tbody>
               </table>
-            </template>
+            </details>
           </div>
         </div>
       </section>
@@ -674,6 +680,8 @@ export default {
       apiVersion: "",
       changelog: CHANGELOG,
       guides: [...GUIDES, ...GUIDES_EXTRA],
+      // selected profession in the Guides tab (chip selector)
+      guideSel: "cooking",
       guildError: false,
       announcements: null,
       annError: false,
@@ -714,6 +722,12 @@ export default {
     } catch {
       this.apiVersion = "?";
     }
+  },
+  computed: {
+    // Guides tab: only the profession picked in the chip selector shows.
+    visibleGuides() {
+      return this.guides.filter((g) => g.id === this.guideSel);
+    },
   },
   methods: {
     formatDate(iso) {
@@ -1741,6 +1755,58 @@ main {
   box-shadow: 0 0 0 1px #000, 0 0 10px rgba(247, 226, 173, 0.45);
 }
 /* --- Guides section --- */
+/* profession selector chips */
+.guide-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+.chip {
+  background: #14131a;
+  border: 1px solid var(--edge);
+  color: var(--muted);
+  padding: 0.3rem 0.9rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  transition: all 0.12s ease;
+}
+.chip:hover {
+  color: var(--ink);
+  border-color: var(--gold);
+}
+.chip.active {
+  color: #14131a;
+  background: var(--gold);
+  border-color: var(--gold-bright);
+  font-weight: 700;
+}
+/* collapsible guide sections */
+.gsec {
+  border-top: 1px solid rgba(58, 56, 64, 0.6);
+  padding-top: 0.15rem;
+}
+.gsec:first-of-type {
+  border-top: 0;
+}
+summary.guide-h4 {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+summary.guide-h4::-webkit-details-marker {
+  display: none;
+}
+summary.guide-h4::after {
+  content: " ▸";
+  color: var(--gold);
+  font-size: 0.8em;
+}
+details[open] > summary.guide-h4::after {
+  content: " ▾";
+}
 .guide {
   border-top: 1px solid var(--edge);
   padding-top: 1.1rem;
