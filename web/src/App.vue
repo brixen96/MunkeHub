@@ -32,6 +32,9 @@
         <button :class="{ active: tab === 'guides' }" @click="tab = 'guides'">
           Guides
         </button>
+        <button :class="{ active: tab === 'ah' }" @click="tab = 'ah'">
+          Auction House
+        </button>
         <button :class="{ active: tab === 'changelog' }" @click="tab = 'changelog'">
           Changelog
         </button>
@@ -431,6 +434,204 @@
         </div>
       </section>
 
+      <!-- ================= AUCTION HOUSE ================= -->
+      <section v-show="tab === 'ah'">
+        <div class="panel">
+          <h2 class="panel-title">
+            Auction House <span class="hint">— Horde · RPPVP · EU</span>
+          </h2>
+
+          <p v-if="ahError" class="error">Could not load auction data.</p>
+          <p v-else-if="!ahSummary" class="muted">Loading auction data…</p>
+
+          <template v-else>
+            <!-- market overview -->
+            <div class="dash ah-dash">
+              <div class="dash-card">
+                <span class="dash-num">{{ fmtNum(ahSummary.listing_count) }}</span>
+                <span class="dash-label">Listings</span>
+              </div>
+              <div class="dash-card">
+                <span class="dash-num">{{ fmtNum(ahSummary.items) }}</span>
+                <span class="dash-label">Items</span>
+              </div>
+              <div class="dash-card">
+                <span class="dash-num">{{ fmtNum(ahSummary.confirmed_24h) }}</span>
+                <span class="dash-label">Sold, 24 h</span>
+              </div>
+              <div class="dash-card">
+                <span class="dash-num ah-money">{{ fmtMoney(ahSummary.confirmed_value_24h) }}</span>
+                <span class="dash-label">Sales value, 24 h</span>
+              </div>
+            </div>
+
+            <!-- section selector -->
+            <div class="guide-chips">
+              <button v-for="s in ahSections" :key="s.id" class="chip"
+                      :class="{ active: ahTab === s.id }"
+                      @click="selectAhSection(s.id)">{{ s.name }}</button>
+            </div>
+
+            <!-- ---------- Deals ---------- -->
+            <div v-if="ahTab === 'deals'" class="guide">
+              <details class="gsec" open>
+                <summary class="guide-h4">
+                  Deals right now — {{ ahDeals ? ahDeals.all : 0 }} items at least 20% under the 7-day price
+                </summary>
+                <p class="ah-note">
+                  Buy low, sell high. Prices are per item at the cheapest listing.
+                  <span v-if="ahDeals && ahDeals.captured_at">Scanned {{ fmtAgo(ahDeals.captured_at) }}.</span>
+                </p>
+                <table class="guide-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th><th class="num">Now</th><th class="num">Usual (7d)</th>
+                      <th class="num">Under</th><th class="num">Sold 24h</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="d in ahDealRows" :key="d.item_id">
+                      <td class="ah-item">
+                        <img :src="d.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
+                        <a :href="wowheadItem(d.item_id)" data-wowhead="" target="_blank" rel="noopener">{{ d.name }}</a>
+                      </td>
+                      <td class="num nowrap">{{ fmtMoney(d.minimum_ask_copper) }}</td>
+                      <td class="num nowrap muted">{{ fmtMoney(d.usual_copper) }}</td>
+                      <td class="num ah-under">−{{ Math.round(d.discount * 100) }}%</td>
+                      <td class="num">{{ fmtNum(d.possible_24h) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </details>
+            </div>
+
+            <!-- ---------- Best to sell ---------- -->
+            <div v-if="ahTab === 'sell'" class="guide">
+              <details class="gsec" open>
+                <summary class="guide-h4">Best to sell right now</summary>
+                <p class="ah-note">
+                  What actually moved on our auction house — sorted by gold earned.
+                  <span class="ah-days">
+                    <button class="chip" :class="{ active: ahSalesDays === '1' }"
+                            @click="loadSales('1')">24 hours</button>
+                    <button class="chip" :class="{ active: ahSalesDays === '7' }"
+                            @click="loadSales('7')">7 days</button>
+                  </span>
+                </p>
+                <table class="guide-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th><th class="num">Sold</th><th class="num">Earned</th>
+                      <th class="num">Avg price</th><th class="num">Cheapest now</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="s in ahSalesItems" :key="s.item_id">
+                      <td class="ah-item">
+                        <img :src="s.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
+                        <a :href="wowheadItem(s.item_id)" data-wowhead="" target="_blank" rel="noopener">{{ s.name }}</a>
+                      </td>
+                      <td class="num">{{ fmtNum(s.confirmed) }}</td>
+                      <td class="num nowrap ah-gold">{{ fmtMoney(s.confirmed_value) }}</td>
+                      <td class="num nowrap muted">{{ fmtMoney(s.average_ask_copper) }}</td>
+                      <td class="num nowrap">{{ fmtMoney(s.minimum_ask_copper) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </details>
+            </div>
+
+            <!-- ---------- Listings ---------- -->
+            <div v-if="ahTab === 'listings'" class="guide">
+              <details class="gsec" open>
+                <summary class="guide-h4">
+                  Listings — {{ ahListings && ahListings.query
+                    ? fmtNum(ahListings.total) + ' matches'
+                    : fmtNum(ahSummary.items) + ' items for sale' }}
+                </summary>
+                <p class="ah-note">
+                  <input v-model="ahQuery" class="ah-search" type="search"
+                         placeholder="Search items…" @input="searchListings">
+                  <span v-if="ahListings && ahListings.query">
+                    {{ fmtNum(ahListings.total) }} matches for “{{ ahListings.query }}”.
+                  </span>
+                </p>
+                <table class="guide-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th><th class="num">For sale</th><th class="num">Cheapest</th>
+                      <th class="num">Avg price</th><th class="num">Sold 24h</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="i in ahListingRows" :key="i.id">
+                      <td class="ah-item">
+                        <img :src="i.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
+                        <a :href="wowheadItem(i.id)" data-wowhead="" target="_blank" rel="noopener">{{ i.name }}</a>
+                        <span class="ah-sub">{{ i.class_name }}<template v-if="i.subclass"> · {{ i.subclass }}</template></span>
+                      </td>
+                      <td class="num">{{ fmtNum(i.units) }} <span class="muted">({{ fmtNum(i.listings) }})</span></td>
+                      <td class="num nowrap" :class="{ 'ah-below': i.below_vendor }">{{ fmtMoney(i.min_copper) }}</td>
+                      <td class="num nowrap muted">{{ fmtMoney(i.avg_copper) }}</td>
+                      <td class="num">{{ fmtNum(i.sold_24h) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p v-if="ahListings && !ahListings.query"
+                   class="ah-note muted">
+                  Showing the hottest {{ ahListings.items.length }} of {{ fmtNum(ahListings.total) }} tracked items —
+                  search above to find anything else.
+                </p>
+              </details>
+            </div>
+
+            <!-- ---------- Crafting ---------- -->
+            <div v-if="ahTab === 'crafting'" class="guide">
+              <div class="guide-chips">
+                <button v-for="p in ahCraftProfs" :key="p.id" class="chip"
+                        :class="{ active: ahCraftProf === String(p.id) }"
+                        @click="loadCrafting(String(p.id))">{{ p.name }}</button>
+              </div>
+              <details class="gsec" open>
+                <summary class="guide-h4">
+                  Crafting profits — {{ ahCraft ? ahCraft.total : 0 }} recipes
+                </summary>
+                <p class="ah-note">
+                  Profit = cheapest sell price minus reagent cost, per craft.
+                </p>
+                <table class="guide-table">
+                  <thead>
+                    <tr>
+                      <th>Recipe</th><th class="num">Reagents</th><th class="num">Sells for</th>
+                      <th class="num">Profit</th><th class="num">Sold 24h</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="r in ahCraftRows" :key="r.id">
+                      <td class="ah-item">
+                        <img :src="r.icon" alt="" loading="lazy" @error="$event.target.style.display='none'">
+                        <a :href="wowheadItem(r.id)" data-wowhead="" target="_blank" rel="noopener">{{ r.name }}</a>
+                      </td>
+                      <td class="num nowrap muted">{{ fmtMoney(r.cost_copper) }}</td>
+                      <td class="num nowrap">{{ fmtMoney(r.minimum_ask_copper) }}</td>
+                      <td class="num nowrap ah-gold">{{ fmtMoney(r.profit_copper) }}</td>
+                      <td class="num">{{ fmtNum(r.possible_24h) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </details>
+            </div>
+
+            <p class="ah-credit">
+              Data from
+              <a href="https://blackwater.exchange/m/eu/15/124" target="_blank" rel="noopener">Blackwater Exchange</a>
+              (scanned hourly, kept 29 days) · cached on MunkeHub
+              <span v-if="ahStatus && ahStatus.last_poll"> · last refresh {{ fmtAgo(ahStatus.last_poll) }}</span>
+            </p>
+          </template>
+        </div>
+      </section>
+
       <!-- ================= ANNOUNCEMENTS ================= -->
       <section v-show="tab === 'news'">
         <div class="panel">
@@ -682,6 +883,19 @@ export default {
       guides: [...GUIDES, ...GUIDES_EXTRA],
       // selected profession in the Guides tab (chip selector)
       guideSel: "cooking",
+      // --- Auction House tab ---
+      ahTab: "deals", // deals | sell | listings | crafting
+      ahSummary: null,
+      ahError: false,
+      ahDeals: null,
+      ahSales: null,
+      ahSalesDays: "1",
+      ahListings: null,
+      ahQuery: "",
+      ahCraft: null,
+      ahCraftProf: "171",
+      ahCraftProfs: [],
+      ahStatus: null,
       guildError: false,
       announcements: null,
       annError: false,
@@ -722,17 +936,108 @@ export default {
     } catch {
       this.apiVersion = "?";
     }
+    // Auction House: load the default section (deals) + overview.
+    this.loadAh();
   },
   computed: {
     // Guides tab: only the profession picked in the chip selector shows.
     visibleGuides() {
       return this.guides.filter((g) => g.id === this.guideSel);
     },
+    // Auction House sections (chip selector).
+    ahSections() {
+      return [
+        { id: "deals", name: "Deals" },
+        { id: "sell", name: "Best to sell" },
+        { id: "listings", name: "Listings" },
+        { id: "crafting", name: "Crafting" },
+      ];
+    },
+    ahDealRows() {
+      return (this.ahDeals && this.ahDeals.items ? this.ahDeals.items : []).slice(0, 50);
+    },
+    ahSalesItems() {
+      return (this.ahSales && this.ahSales.items ? this.ahSales.items : []).slice(0, 50);
+    },
+    ahListingRows() {
+      return this.ahListings && this.ahListings.items ? this.ahListings.items : [];
+    },
+    ahCraftRows() {
+      return (this.ahCraft && this.ahCraft.recipes ? this.ahCraft.recipes : []).slice(0, 50);
+    },
   },
   methods: {
     formatDate(iso) {
       if (!iso) return "";
       return new Date(iso).toLocaleString();
+    },
+    // --- Auction House -------------------------------------------------
+    async loadAh() {
+      try {
+        this.ahSummary = await api.ahSummary();
+        this.ahDeals = await api.ahDeals();
+        this.ahStatus = await api.ahStatus().catch(() => null);
+        this.ahError = false;
+      } catch {
+        this.ahError = true;
+      }
+    },
+    selectAhSection(id) {
+      this.ahTab = id;
+      if (id === "sell" && !this.ahSales) this.loadSales("1");
+      if (id === "listings" && !this.ahListings) this.searchListings();
+      if (id === "crafting" && !this.ahCraft) this.loadCrafting(this.ahCraftProf);
+    },
+    async loadSales(days) {
+      this.ahSalesDays = days;
+      try {
+        this.ahSales = await api.ahSales(days);
+      } catch {
+        this.ahSales = null;
+      }
+    },
+    async searchListings() {
+      try {
+        this.ahListings = await api.ahListings(this.ahQuery, 1, 50);
+      } catch {
+        this.ahListings = null;
+      }
+    },
+    async loadCrafting(prof) {
+      this.ahCraftProf = prof;
+      try {
+        this.ahCraft = await api.ahCrafting(prof);
+        if (!this.ahCraftProfs.length && this.ahCraft.professions) {
+          this.ahCraftProfs = this.ahCraft.professions;
+        }
+      } catch {
+        this.ahCraft = null;
+      }
+    },
+    // Copper → "1g 23s 45c" (gold hidden below 1g, like the game).
+    fmtMoney(copper) {
+      const c = Math.round(Number(copper) || 0);
+      if (c < 100) return c + "c";
+      const g = Math.floor(c / 10000);
+      const s = Math.floor((c % 10000) / 100);
+      const r = c % 100;
+      if (!g) return `${s}s ${r}c`;
+      return `${g}g ${s}s ${r}c`;
+    },
+    fmtNum(n) {
+      const v = Number(n) || 0;
+      return v.toLocaleString("en-GB");
+    },
+    // "2026-11-19T13:42:12Z" → "12 minutes ago".
+    fmtAgo(iso) {
+      const t = new Date(iso).getTime();
+      if (!t) return "";
+      const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+      if (mins < 1) return "just now";
+      if (mins < 60) return `${mins} min ago`;
+      const h = Math.floor(mins / 60);
+      if (h < 24) return `${h}h ago`;
+      return `${Math.floor(h / 24)}d ago`;
     },
     classSlug(cls) {
       return "c-" + (cls || "").toLowerCase().replace(/[^a-z]/g, "");
@@ -1879,6 +2184,88 @@ details[open] > summary.guide-h4::after {
   color: var(--muted);
   font-family: Consolas, monospace;
   font-size: 0.78rem;
+}
+
+/* ---------------- auction house ---------------- */
+.ah-dash {
+  grid-template-columns: repeat(4, 1fr);
+}
+/* "1870g 61s 2c" is long — keep it on one line in the card */
+.ah-money {
+  font-size: 1.15rem;
+  white-space: nowrap;
+}
+.guide-table .num {
+  text-align: right;
+}
+.ah-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ah-item img {
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  flex: none;
+}
+.ah-sub {
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin-left: 0.35rem;
+}
+.ah-under {
+  color: #7fd18a;
+  font-weight: 700;
+}
+.ah-gold {
+  color: var(--gold-bright);
+  font-weight: 700;
+}
+.ah-below {
+  color: #e07a7a;
+}
+.ah-note {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0.4rem 0 0.7rem;
+}
+.ah-days {
+  display: inline-flex;
+  gap: 0.4rem;
+  margin-left: 0.6rem;
+}
+.ah-days .chip {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.72rem;
+}
+.ah-search {
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.7rem;
+  width: 240px;
+  max-width: 100%;
+}
+.ah-search:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+.ah-credit {
+  margin-top: 1rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-align: center;
+}
+.ah-credit a {
+  color: var(--muted);
+  text-decoration: underline;
+}
+.ah-credit a:hover {
+  color: var(--gold-bright);
 }
 /* shopping list cards */
 .shop-grid {

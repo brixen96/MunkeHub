@@ -25,7 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.17"
+const version = "0.8.18"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -128,7 +128,19 @@ func main() {
 		// Token management (admin only) — used by the MunkeHub Admin app
 		api.GET("/tokens", requireAdmin(), func(c *gin.Context) { listTokens(c, db) })
 		api.DELETE("/tokens/:id", requireAdmin(), func(c *gin.Context) { revokeToken(c, db) })
+
+		// Auction House: cached blackwater.exchange data for our realm
+		// (Horde · Roleplay PvP · EU). Public read — same as the roster.
+		api.GET("/ah/summary", func(c *gin.Context) { ahSummary(c, db) })
+		api.GET("/ah/deals", func(c *gin.Context) { ahDeals(c, db) })
+		api.GET("/ah/sales", func(c *gin.Context) { ahSales(c, db) })
+		api.GET("/ah/listings", func(c *gin.Context) { ahListings(c, db) })
+		api.GET("/ah/crafting", func(c *gin.Context) { ahCrafting(c, db) })
+		api.GET("/ah/status", func(c *gin.Context) { ahStatus(c, db) })
 	}
+
+	// Auction House poller: refreshes the cache hourly, once shortly after boot.
+	go newAHPoller(db).run()
 
 	port := envOr("MUNKEHUB_PORT", "8080")
 	log.Printf("MunkeHub API v%s listening on :%s", version, port)
@@ -169,7 +181,12 @@ func migrate(db *sql.DB) error {
 			detail     TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 			UNIQUE (name, realm)
-		)`)
+		);
+		CREATE TABLE IF NOT EXISTS ah_cache (
+			key        TEXT PRIMARY KEY,
+			body       TEXT NOT NULL,
+			fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);`)
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,7 @@
 # Go
 api/bin/
 api/*.db
+api/munkehub.exe
 
 # Node
 node_modules/

@@ -9,7 +9,7 @@ async function get(path) {
 }
 
 // Bump on every release — shown in the footer so Emil can verify versions.
-export const WEB_VERSION = "0.8.17";
+export const WEB_VERSION = "0.8.18";
 
 export const api = {
   health: () => fetch("/health").then((r) => r.json()),
@@ -35,4 +35,15 @@ export const api = {
   // Talent tree layout for a class (grid positions, icons, prereqs) —
   // static per class, cached 24h server-side.
   talentLayout: (classId) => get("/talents/" + classId),
+  // Auction House — all served from our SQLite cache of blackwater.exchange
+  // (poller refreshes hourly), so these are instant and never hit upstream.
+  ahSummary: () => get("/ah/summary"),
+  ahDeals: () => get("/ah/deals"),
+  ahSales: (days = "1") => get(`/ah/sales?days=${days}`),
+  ahListings: (q = "", page = 1, limit = 50) =>
+    get(
+      `/ah/listings?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}`
+    ),
+  ahCrafting: (profession = "171") => get(`/ah/crafting?profession=${profession}`),
+  ahStatus: () => get("/ah/status"),
 };

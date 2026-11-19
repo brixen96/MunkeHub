@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.18",
+    date: "2026-11-19",
+    entries: [
+      "New Auction House tab: live prices for our realm (Horde · RPPVP · EU) — deals, best things to sell, searchable listings and crafting profits. Refreshed hourly.",
+    ],
+  },
+  {
     version: "0.8.17",
     date: "2026-11-19",
     entries: [
