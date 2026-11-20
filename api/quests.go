@@ -25,7 +25,7 @@ import (
 
 const (
 	questAdviceTTL       = time.Hour
-	questAdviceMaxTokens = 1600
+	questAdviceMaxTokens = 2000
 )
 
 type questObjective struct {
@@ -38,15 +38,16 @@ type questObjective struct {
 }
 
 type questEntry struct {
-	ID         int64             `json:"id"`
-	Title      string            `json:"title"`
-	Level      int               `json:"level"`
-	Group      int               `json:"group"`
-	Tag        string            `json:"tag"` // Elite, Dungeon, Raid, ...
-	Complete   bool              `json:"complete"`
-	Failed     bool              `json:"failed"`
-	Objectives []questObjective  `json:"objectives"`
-	InBag      map[string]int    `json:"in_bag,omitempty"` // itemID -> count in bags
+	ID         int64            `json:"id"`
+	Title      string           `json:"title"`
+	Level      int              `json:"level"`
+	Group      int              `json:"group"`
+	Tag        string           `json:"tag"` // Elite, Dungeon, Raid, ...
+	Complete   bool             `json:"complete"`
+	Failed     bool             `json:"failed"`
+	XPReward   int              `json:"xp_reward"` // XP this quest gives at the current level
+	Objectives []questObjective `json:"objectives"`
+	InBag      map[string]int   `json:"in_bag,omitempty"` // itemID -> count in bags
 }
 
 type questLogIn struct {
@@ -54,6 +55,9 @@ type questLogIn struct {
 	Realm   string       `json:"realm"`
 	Level   int          `json:"level"`
 	Race    string       `json:"race"`
+	Class   string       `json:"class"`
+	XP      int          `json:"xp"`     // current XP into this level
+	XPMax   int          `json:"xp_max"`  // XP needed for next level
 	Quests  []questEntry `json:"quests"`
 }
 
@@ -147,9 +151,21 @@ func questLogHandler(c *gin.Context, db *sql.DB) {
 		}
 	}
 
+	// leveling talent facts for class + level (method.gg guides) — served
+	// here so the talent card works even when the AI is down
+	talent := gin.H{}
+	if g, b := talentHintFor(log.Class, log.Level); b != nil {
+		talent = gin.H{"spec": g.Spec, "min": b.Min, "max": b.Max, "hint": b.Hint}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"name":       log.Name,
 		"level":      log.Level,
+		"race":       log.Race,
+		"class":      log.Class,
+		"xp":         log.XP,
+		"xp_max":     log.XPMax,
+		"talent":     talent,
 		"quests":     log.Quests,
 		"updated_at": updatedAt,
 	})
@@ -163,6 +179,7 @@ type questAdvice struct {
 	TurnIn  []questAdviceItem `json:"turn_in"`
 	DoNow   []questAdviceItem `json:"do_now"`
 	Avoid   []questAdviceItem `json:"avoid"`
+	Drop    []questAdviceItem `json:"drop"` // safe to abandon (grey XP)
 }
 
 type questAdviceItem struct {
@@ -175,9 +192,12 @@ type questAdviceItem struct {
 type questDigest struct {
 	Level   int               `json:"level"`
 	Race    string            `json:"race,omitempty"`
+	Class   string            `json:"class,omitempty"`
 	Quests  []questEntry      `json:"quests"`
 	InBags  []string          `json:"quest_items_in_bags"`
 	Route   []levelingBracket `json:"leveling_route,omitempty"`
+	Talent  *talentBracket    `json:"talent_bracket,omitempty"`
+	TalentSpec string         `json:"talent_spec,omitempty"`
 }
 
 func buildQuestDigest(db *sql.DB, name string) (questDigest, error) {
@@ -192,11 +212,17 @@ func buildQuestDigest(db *sql.DB, name string) (questDigest, error) {
 	if err := json.Unmarshal([]byte(body), &log); err != nil {
 		return questDigest{}, fmt.Errorf("bad quest log body")
 	}
-	d := questDigest{Level: log.Level, Race: log.Race, Quests: log.Quests}
+	d := questDigest{Level: log.Level, Race: log.Race, Class: log.Class, Quests: log.Quests}
 
 	// leveling route for this level (facts from guides.md sources) — lets the
 	// advisor answer "my log is empty, where do I go?" with real zones
 	d.Route = routeFor(log.Level, log.Race)
+
+	// leveling talent bracket for class + level (facts from method.gg guides)
+	if g, b := talentHintFor(log.Class, log.Level); b != nil {
+		d.Talent = b
+		d.TalentSpec = g.Spec
+	}
 
 	// which quest items are already sitting in bags (helps "you can turn in now")
 	bags := bagCountsFor(db, name)
@@ -250,12 +276,14 @@ Rules:
 - "next" = the single best quest to do next, chosen from their log. Consider level fit (quests near their level give good XP; grey quests give almost none), location flow, and whether objectives are already partly done.
 - "turn_in" = quests whose objectives are all complete (or whose items are already in bags) — turn these in first.
 - "do_now" = quests worth progressing now (2-4).
-- "avoid" = quests to skip or defer: grey/low-level XP waste, group-only (Group/Raid tags) while solo, escort chains that waste time, or objectives needing items they don't have. If nothing should be avoided, return an empty array.
+- "avoid" = quests to skip or defer: group-only (Group/Raid tags) while solo, escort chains that waste time, or objectives needing items they don't have. If nothing should be avoided, return an empty array.
+- "drop" = quests that are pure XP waste and safe to abandon: 8+ levels below the character (grey). Only list quests that are clearly obsolete — never drop quests with partial progress worth finishing. Empty array if none.
+- The digest has "talent_bracket" (facts from class leveling guides) — when relevant, you may reference its hint in "summary" or a "why", but keep talent names and levels exact. Never invent talents.
 - If their quest log is empty or nearly empty, use leveling_route to say where to go next: name the zone(s) from the route bracket matching their level. If the log has plenty of quests, the route is context only.
 - Quest titles are the source of truth. Use vanilla WoW knowledge for zones and follow-ups. If a quest title looks custom to WoW: Forever and you don't know it, say so in "why" instead of inventing details.
 - Keep every "why" under 16 words, plain English.
 - Answer ONLY with this JSON shape:
-{"summary":"2-3 sentences","next":{"quest":"...","why":"..."},"turn_in":[{"quest":"...","why":"..."}],"do_now":[{"quest":"...","why":"..."}],"avoid":[{"quest":"...","why":"..."}]}`
+{"summary":"2-3 sentences","next":{"quest":"...","why":"..."},"turn_in":[{"quest":"...","why":"..."}],"do_now":[{"quest":"...","why":"..."}],"avoid":[{"quest":"...","why":"..."}],"drop":[{"quest":"...","why":"..."}]}`
 
 	raw, err := callLLM(key, system, mustJSON(digest), questAdviceMaxTokens, 0.4)
 	if err != nil {
@@ -273,6 +301,9 @@ Rules:
 	}
 	if adv.Avoid == nil {
 		adv.Avoid = []questAdviceItem{}
+	}
+	if adv.Drop == nil {
+		adv.Drop = []questAdviceItem{}
 	}
 	out, _ := json.Marshal(adv)
 

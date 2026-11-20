@@ -1,4 +1,4 @@
--- MunkeHub v0.8.28 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
+-- MunkeHub v0.8.29 — private guild hub addon for Munkeklubben (WoW: Forever, RPPVP)
 --
 -- Two data paths (WoW addons CANNOT do HTTP):
 --   1. OWN stats  -> SavedVariables (syncJSON)  -> helper exe uploads
@@ -295,6 +295,18 @@ local function BuildQuestJSON()
                 local t = C_QuestLog.GetQuestTagInfo(qid)
                 if t and type(t.tagName) == "string" then tag = t.tagName end
             end
+            -- XP this quest pays at our level: GetQuestLogRewardXP answers for
+            -- the SELECTED entry (verified in QuestMaster/Compat.lua), so
+            -- select, read, restore. Bare global, guarded.
+            local xpReward = 0
+            if type(GetQuestLogRewardXP) == "function" and C_QuestLog.SelectQuestLogEntry then
+                local prev = 0
+                if type(GetQuestLogSelection) == "function" then prev = tonumber(GetQuestLogSelection()) or 0 end
+                C_QuestLog.SelectQuestLogEntry(i)
+                local ok, xp = pcall(GetQuestLogRewardXP)
+                if ok and type(xp) == "number" and xp >= 0 then xpReward = xp end
+                if prev > 0 and prev ~= i then C_QuestLog.SelectQuestLogEntry(prev) end
+            end
             local objs = {}
             if C_QuestLog.GetQuestObjectives then
                 local objectives = C_QuestLog.GetQuestObjectives(qid)
@@ -311,18 +323,25 @@ local function BuildQuestJSON()
                 end
             end
             parts[#parts + 1] = string.format(
-                '{"id":%d,"title":"%s","level":%d,"group":%d,"tag":"%s","complete":%s,"failed":%s,"objectives":[%s]}',
+                '{"id":%d,"title":"%s","level":%d,"group":%d,"tag":"%s","complete":%s,"failed":%s,"xp_reward":%d,"objectives":[%s]}',
                 qid, esc(info.title or ""), tonumber(info.level) or 0,
                 tonumber(info.suggestedGroup) or 0, esc(tag),
                 (complete and "true" or "false"), (failed and "true" or "false"),
-                table.concat(objs, ","))
+                xpReward, table.concat(objs, ","))
         end
     end
     local name = UnitName("player") or ""
     local realm = GetRealmName() or ""
     local race = UnitRace("player") or ""
-    return string.format('{"name":"%s","realm":"%s","level":%d,"race":"%s","quests":[%s]}',
-        esc(name), esc(realm), tonumber(UnitLevel("player")) or 0, esc(race), table.concat(parts, ","))
+    local class = UnitClass("player") or ""
+    -- XP into this level / XP needed for next level (bare globals — verified
+    -- in Titan/QuestMaster in the client) for the level-up ETA card.
+    local xp = UnitXP and tonumber(UnitXP("player")) or 0
+    local xpMax = UnitXPMax and tonumber(UnitXPMax("player")) or 0
+    return string.format(
+        '{"name":"%s","realm":"%s","level":%d,"race":"%s","class":"%s","xp":%d,"xp_max":%d,"quests":[%s]}',
+        esc(name), esc(realm), tonumber(UnitLevel("player")) or 0, esc(race), esc(class),
+        xp, xpMax, table.concat(parts, ","))
 end
 
 local function SyncStats()

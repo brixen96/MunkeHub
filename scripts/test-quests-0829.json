@@ -1,0 +1,76 @@
+{
+  "name": "Brix",
+  "realm": "CAMWOW",
+  "level": 37,
+  "race": "Undead",
+  "class": "Priest",
+  "xp": 12400,
+  "xp_max": 45300,
+  "quests": [
+    {
+      "id": 1001,
+      "title": "Soldier's Duty",
+      "level": 36,
+      "group": 0,
+      "tag": "",
+      "complete": false,
+      "failed": false,
+      "xp_reward": 4100,
+      "objectives": [
+        { "type": "monster", "id": 0, "text": "Defeat 10 Bleeding Hollow orcs", "have": 4, "need": 10, "done": false }
+      ]
+    },
+    {
+      "id": 1002,
+      "title": "Heirloom Inspection",
+      "level": 30,
+      "group": 0,
+      "tag": "",
+      "complete": true,
+      "failed": false,
+      "xp_reward": 2600,
+      "objectives": [
+        { "type": "item", "id": 889, "text": "Inspect the heirloom", "have": 1, "need": 1, "done": true }
+      ]
+    },
+    {
+      "id": 1003,
+      "title": "The Scarlet Key",
+      "level": 35,
+      "group": 5,
+      "tag": "Dungeon",
+      "complete": false,
+      "failed": false,
+      "xp_reward": 5400,
+      "objectives": [
+        { "type": "item", "id": 7146, "text": "Obtain the Scarlet Key", "have": 0, "need": 1, "done": false }
+      ]
+    },
+    {
+      "id": 1004,
+      "title": "A Simple Manuscript",
+      "level": 24,
+      "group": 0,
+      "tag": "",
+      "complete": false,
+      "failed": false,
+      "xp_reward": 900,
+      "objectives": [
+        { "type": "monster", "id": 0, "text": "Collect 8 manuscript pages", "have": 8, "need": 8, "done": true }
+      ]
+    },
+    {
+      "id": 1005,
+      "title": "Rats in the Cellar",
+      "level": 28,
+      "group": 0,
+      "tag": "",
+      "complete": false,
+      "failed": false,
+      "xp_reward": 1400,
+      "objectives": [
+        { "type": "monster", "id": 0, "text": "Kill 12 cellar rats", "have": 3, "need": 12, "done": false }
+      ]
+    }
+  ]
+}

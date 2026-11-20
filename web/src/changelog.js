@@ -2,6 +2,18 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.29",
+    date: "2026-11-20",
+    entries: [
+      "Quests: talent hints for your level — facts from the method.gg class guides, shown as a card and used by the AI.",
+      "Quests: smart order — turn-ins first, then the best level fit; toggle back to raw log order.",
+      "Quests: level-up ETA — XP to next level, how many quests like yours that is, and a rough hour estimate.",
+      "Quests: NEW badge on quests you picked up since your last visit to the site.",
+      "Quests: dungeon quests get a 🏰 chip and a 'Post LFM' button that posts to the Guild Board.",
+      "Quest Helper AI: 'Safe to drop' list — grey quests that are pure XP waste.",
+    ],
+  },
+  {
     version: "0.8.28",
     date: "2026-11-19",
     entries: [

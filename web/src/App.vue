@@ -667,9 +667,36 @@
                   <b>{{ t.quest }}</b><span>{{ t.why }}</span>
                 </div>
               </div>
+              <div v-if="questAdvice.drop && questAdvice.drop.length" class="qa-col qa-drop">
+                <h4>✋ Safe to drop</h4>
+                <div v-for="t in questAdvice.drop" :key="t.quest" class="qa-item">
+                  <b>{{ t.quest }}</b><span>{{ t.why }}</span>
+                </div>
+              </div>
             </div>
           </div>
           <p v-else-if="questAdviceError" class="error">{{ questAdviceError }}</p>
+
+          <!-- level-up ETA: XP math from the addon's xp/xp_max + quest rewards -->
+          <div v-if="etaInfo" class="eta-card">
+            <div class="eta-main">
+              <span class="eta-num">{{ fmtNum(etaInfo.remaining) }}</span>
+              <span class="eta-label">XP to level {{ quests.level + 1 }}</span>
+            </div>
+            <div class="eta-facts">
+              <span>≈ {{ etaInfo.questsNeeded }} quest{{ etaInfo.questsNeeded === 1 ? '' : 's' }} like the ones in your log</span>
+              <span>≈ {{ etaInfo.hours }}h of questing (rough pace)</span>
+              <span class="muted">{{ fmtNum(etaInfo.logXp) }} XP sitting in doable quests right now</span>
+            </div>
+          </div>
+
+          <!-- leveling talents: facts from method.gg class guides -->
+          <div v-if="quests && quests.talent && quests.talent.hint" class="talent-card">
+            <h3 class="quest-h3">🎯 Talents for level {{ quests.level }}</h3>
+            <p class="talent-spec">{{ quests.talent.spec }}</p>
+            <p class="talent-hint">{{ quests.talent.hint }}</p>
+            <p class="route-src">Talent facts from method.gg class guides (see guides.md) — names and levels only.</p>
+          </div>
 
           <!-- where to go: leveling route for this level (Tier 2) -->
           <div v-if="levelRoute && levelRoute.length" class="route-card">
@@ -689,15 +716,28 @@
 
           <!-- quest log -->
           <template v-if="quests && quests.quests.length">
-            <h3 class="quest-h3">Quest log</h3>
-            <div v-for="q in quests.quests" :key="q.id" class="quest-card"
+            <div class="ql-head">
+              <h3 class="quest-h3">Quest log</h3>
+              <button class="chip" @click="questSort = questSort === 'smart' ? 'log' : 'smart'">
+                {{ questSort === 'smart' ? '↕ Smart order' : '↕ Log order' }}
+              </button>
+            </div>
+            <div v-for="q in sortedQuests" :key="q.id" class="quest-card"
                  :class="{ complete: q.complete, failed: q.failed }">
               <div class="qc-head">
                 <span class="qc-level" :class="questDiff(q)">{{ q.level }}</span>
                 <b class="qc-title">{{ q.title }}</b>
+                <span v-if="isNewQuest(q)" class="qc-new">NEW</span>
                 <span v-if="q.tag" class="qc-tag">{{ q.tag }}</span>
+                <span v-if="isDungeonQuest(q)" class="qc-dungeon">🏰 dungeon</span>
                 <span v-if="q.complete" class="qc-done">✓ ready to turn in</span>
                 <span v-else-if="q.failed" class="qc-failed">failed</span>
+                <button v-if="isDungeonQuest(q) && !q.complete" class="link-btn qc-lfm"
+                        :disabled="!postToken || lfmPosted === q.id"
+                        :title="postToken ? 'Post an LFM on the Guild Board' : 'Set your member token on the Board tab first'"
+                        @click="postLfm(q)">
+                  {{ lfmPosted === q.id ? '✓ Posted' : lfmFailed === q.id ? '✗ check token' : '📣 Post LFM' }}
+                </button>
               </div>
               <div v-if="q.objectives && q.objectives.length" class="qc-objs">
                 <div v-for="(o, oi) in q.objectives" :key="oi" class="qc-obj"
@@ -1549,6 +1589,22 @@ function loadGuideProgress() {
   }
 }
 
+// Quest ids last seen per character — powers the "NEW" badge on the Quests tab.
+function loadSeenQuests() {
+  try {
+    return JSON.parse(localStorage.getItem("munkehub_seen_quests")) || {};
+  } catch {
+    return {};
+  }
+}
+function saveSeenQuests(map) {
+  try {
+    localStorage.setItem("munkehub_seen_quests", JSON.stringify(map));
+  } catch {
+    /* private mode / quota — badges just won't persist */
+  }
+}
+
 export default {
   name: "App",
   data() {
@@ -1604,6 +1660,11 @@ export default {
       questAdviceLoading: false,
       questAdviceError: "",
       levelRoute: null, // leveling brackets for the selected char's level
+      questSort: "smart", // smart (turn-in first, then by level) | log (raw order)
+      seenQuests: loadSeenQuests(), // name -> [quest ids] last seen on the site
+      newQuestIds: [], // ids new since the last visit (shown as NEW this session)
+      lfmPosted: 0, // quest id we just posted an LFM for
+      lfmFailed: 0, // quest id where the LFM post was rejected (bad token)
       // buy list cart (aggregated shopping list minus bags)
       cartOpen: false,
       // --- Auction House tab ---
@@ -1823,6 +1884,36 @@ export default {
         if (sorted[i]) m[sorted[i].id] = e;
       });
       return m;
+    },
+    // --- Quest tab: smart order + level-up ETA ----------------------------
+    // Turn-ins first, then ready quests, then the rest by level (closest fit).
+    sortedQuests() {
+      if (!this.quests || !this.quests.quests) return [];
+      const list = [...this.quests.quests];
+      if (this.questSort === "log") return list;
+      const rank = (q) => (q.complete ? 0 : q.failed ? 3 : 1);
+      return list.sort((a, b) =>
+        rank(a) - rank(b) ||
+        Math.abs(a.level - this.quests.level) - Math.abs(b.level - this.quests.level) ||
+        b.level - a.level
+      );
+    },
+    // Level-up ETA: remaining XP, quest count from real quest rewards, rough hours.
+    etaInfo() {
+      const q = this.quests;
+      if (!q || !q.xp_max || q.xp_max <= 0 || q.level >= 60) return null;
+      const remaining = Math.max(0, q.xp_max - q.xp);
+      const doable = (q.quests || []).filter(
+        (x) => !x.complete && !x.failed && x.xp_reward > 0
+      );
+      const logXp = doable.reduce((s, x) => s + x.xp_reward, 0);
+      const avg = doable.length ? Math.round(logXp / doable.length) : 0;
+      return {
+        remaining,
+        logXp,
+        questsNeeded: avg > 0 ? Math.max(1, Math.ceil(remaining / avg)) : 0,
+        hours: Math.max(1, Math.round(remaining / 12000)), // ~12k XP/h questing, rough
+      };
     },
     // Sortable roster columns.
     rosterCols() {
@@ -2312,6 +2403,14 @@ export default {
           this.levelRoute = [];
         }
       }
+      // NEW badges: ids not seen before this visit, then remember the set.
+      // First visit has nothing to compare against — don't flag everything.
+      const current = (this.quests.quests || []).map((x) => x.id);
+      const seen = this.seenQuests[this.questName];
+      this.newQuestIds = seen ? current.filter((id) => !seen.includes(id)) : [];
+      this.seenQuests[this.questName] = current;
+      saveSeenQuests(this.seenQuests);
+      this.lfmPosted = 0;
       // advice loads lazily with the log (cached 1h server-side)
       this.loadQuestAdvice(false);
     },
@@ -2330,6 +2429,43 @@ export default {
             : "No advice yet — accept some quests first.";
       } finally {
         this.questAdviceLoading = false;
+      }
+    },
+    // --- Quest tab: NEW badges, dungeon LFM --------------------------------
+    // Quest picked up since the last time this character's log was viewed.
+    isNewQuest(q) {
+      return this.newQuestIds.includes(q.id);
+    },
+    // Needs a group: Dungeon/Raid tag or a suggested group size ≥ 2.
+    isDungeonQuest(q) {
+      if (q.complete || q.failed) return false;
+      if (q.tag && /dungeon|raid/i.test(q.tag)) return true;
+      return (q.group || 0) >= 2;
+    },
+    // Post "LFM: <quest>" as an open order on the Guild Board — claiming it
+    // means "I'm in", done means it got finished.
+    async postLfm(q) {
+      if (!this.postToken || this.lfmPosted === q.id) return;
+      // boardOrderAdd resolves with {error} on a rejected token instead of
+      // throwing — check the body, don't trust the promise.
+      const ok = await api
+        .boardOrderAdd(
+          {
+            item_name: `LFM: ${q.title} (lvl ${q.level})`,
+            qty: 1,
+            wanted_by: this.questName,
+            note: `Group quest — posted from the Quests tab. Claim = I'm in.`,
+          },
+          this.postToken
+        )
+        .then((res) => res && !res.error && res.ok)
+        .catch(() => false);
+      if (ok) {
+        this.lfmPosted = q.id;
+        setTimeout(() => { if (this.lfmPosted === q.id) this.lfmPosted = 0; }, 4000);
+      } else {
+        this.lfmFailed = q.id;
+        setTimeout(() => { if (this.lfmFailed === q.id) this.lfmFailed = 0; }, 4000);
       }
     },
     // Difficulty color: green = at/above level, red = 5+ below (grey XP).
@@ -3356,6 +3492,53 @@ main {
 .qa-item span { color: var(--muted); font-size: 0.8rem; }
 .qa-avoid .qa-item b { color: #e0a34a; }
 .qa-turnin .qa-item b { color: #7fd18a; }
+.qa-drop .qa-item b { color: #c98bd8; }
+
+/* level-up ETA card */
+.eta-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1.4rem;
+  background: var(--stone);
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--gold);
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  margin-bottom: 1rem;
+}
+.eta-main { display: flex; align-items: baseline; gap: 0.5rem; }
+.eta-num {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--gold-bright);
+  font-variant-numeric: tabular-nums;
+}
+.eta-label { font-size: 0.85rem; color: var(--ink); font-weight: 600; }
+.eta-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* leveling talent hints (method.gg facts) */
+.talent-card {
+  background: var(--stone);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  margin-bottom: 1rem;
+}
+.talent-card .quest-h3 { margin-top: 0; }
+.talent-spec {
+  font-size: 0.8rem;
+  color: var(--gold-bright);
+  font-weight: 700;
+  margin-bottom: 0.3rem;
+}
+.talent-hint { font-size: 0.9rem; line-height: 1.5; }
 
 .quest-h3 {
   font-size: 0.95rem;
@@ -3403,6 +3586,31 @@ main {
 }
 .qc-done { color: #7fd18a; font-size: 0.8rem; font-weight: 700; }
 .qc-failed { color: #e05d5d; font-size: 0.8rem; }
+.qc-new {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #0d0d10;
+  background: #7fd18a;
+  border-radius: 3px;
+  padding: 0.05rem 0.3rem;
+}
+.qc-dungeon {
+  font-size: 0.68rem;
+  color: #6fb7ff;
+  border: 1px solid #6fb7ff;
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+.qc-lfm { font-size: 0.72rem; margin-left: auto; }
+.ql-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+.ql-head .quest-h3 { margin: 0; }
 .qc-objs { margin-top: 0.4rem; }
 .qc-obj {
   display: grid;
