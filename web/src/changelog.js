@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.34",
+    date: "2026-11-20",
+    entries: [
+      "Weekly digest: 'Week in review' now leads with what the guild did — events and RSVPs, groups formed, orders finished, quest logs synced — not just auction prices.",
+    ],
+  },
+  {
     version: "0.8.33",
     date: "2026-11-20",
     entries: [

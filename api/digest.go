@@ -122,7 +122,70 @@ func weekFacts(db *sql.DB) map[string]any {
 	_ = db.QueryRow(`SELECT COUNT(*) FROM characters`).Scan(&chars)
 	f["roster_count"] = chars
 
+	// guild activity this week — events, groups formed, board traffic
+	f["activity"] = guildActivity(db)
+
 	return f
+}
+
+// guildActivity counts what the guild actually DID this week: events with
+// their RSVPs, LFM groups, crafting orders and quest-log syncs. Powers the
+// "week in review" announcement so it's about people, not just prices.
+func guildActivity(db *sql.DB) map[string]any {
+	a := map[string]any{}
+
+	// events created this week + who answered
+	events := []map[string]any{}
+	rows, err := db.Query(`
+		SELECT id, title, when_text FROM events
+		WHERE created_at >= datetime('now', '-7 days') ORDER BY id DESC LIMIT 5`)
+	if err == nil {
+		ids := []int64{}
+		for rows.Next() {
+			var id int64
+			var title, when string
+			if rows.Scan(&id, &title, &when) == nil {
+				ids = append(ids, id)
+				events = append(events, map[string]any{"title": title, "when": when})
+			}
+		}
+		rows.Close()
+		for i, id := range ids {
+			var yes, maybe, no int
+			_ = db.QueryRow(`SELECT COUNT(*) FROM event_rsvps WHERE event_id = ? AND status = 'yes'`, id).Scan(&yes)
+			_ = db.QueryRow(`SELECT COUNT(*) FROM event_rsvps WHERE event_id = ? AND status = 'maybe'`, id).Scan(&maybe)
+			_ = db.QueryRow(`SELECT COUNT(*) FROM event_rsvps WHERE event_id = ? AND status = 'no'`, id).Scan(&no)
+			events[i]["going"] = yes
+			events[i]["maybe"] = maybe
+			events[i]["cant"] = no
+		}
+	}
+	if len(events) > 0 {
+		a["events"] = events
+	}
+
+	// LFM groups + crafting orders touched this week
+	var lfmOpen, lfmDone, ordersOpen, ordersDone int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM orders WHERE item_name LIKE 'LFM: %' AND created_at >= datetime('now', '-7 days')`).Scan(&lfmOpen)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM orders WHERE item_name LIKE 'LFM: %' AND status = 'done' AND created_at >= datetime('now', '-7 days')`).Scan(&lfmDone)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM orders WHERE item_name NOT LIKE 'LFM: %' AND created_at >= datetime('now', '-7 days')`).Scan(&ordersOpen)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM orders WHERE item_name NOT LIKE 'LFM: %' AND status = 'done' AND created_at >= datetime('now', '-7 days')`).Scan(&ordersDone)
+	a["lfm_posted"] = lfmOpen
+	a["lfm_done"] = lfmDone
+	a["orders_posted"] = ordersOpen
+	a["orders_done"] = ordersDone
+
+	// quest logs synced (the quest helper is live — how many use it)
+	var questLogs int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM quest_logs WHERE updated_at >= datetime('now', '-7 days')`).Scan(&questLogs)
+	a["quest_logs_synced"] = questLogs
+
+	// announcements posted this week (excluding the digest itself)
+	var notes int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM announcements WHERE created_at >= datetime('now', '-7 days') AND title NOT LIKE 'Week in review%'`).Scan(&notes)
+	a["announcements"] = notes
+
+	return a
 }
 
 // refreshDigest runs one LLM call and caches the announcement text.
@@ -134,13 +197,15 @@ func refreshDigest(db *sql.DB) (digestRow, error) {
 	}
 
 	system := `You are MunkeHub's weekly chronicler for the WoW: Forever guild "Munkeklubben" (Horde, EU RPPVP, roleplay server).
-You get this week's auction market snapshot, top sellers, current deals, roster size, professions and gold.
+You get this week's auction market snapshot, top sellers, current deals, roster size, professions and gold — plus "activity": events with RSVP counts, LFM groups posted/done, crafting orders, quest-log syncs and announcements.
 Write a short guild notice — warm, plain English, RP-server friendly but not overdone.
 
 Rules:
 - 3-5 short sentences total. No lists, no markdown, no headers.
-- Mention 1-2 concrete numbers (gold amounts formatted like "12g 40s").
+- Lead with what the GUILD did (events, groups, orders) when activity data exists — people first, prices second.
+- Mention 1-2 concrete numbers (gold amounts formatted like "12g 40s", or counts like "3 events").
 - If the mount goal is mentioned, note progress toward it in one clause.
+- If activity is empty or missing, fall back to market + roster facts.
 - Never invent facts not present in the data.
 - Answer ONLY with this JSON: {"title":"short announcement title","body":"the notice text"}`
 

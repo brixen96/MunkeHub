@@ -2,7 +2,7 @@
 ## Title: MunkeHub
 ## Notes: Guild hub addon for Munkeklubben - connects to the MunkeHub API
 ## Author: Emil Brix
-## Version: 0.8.33
+## Version: 0.8.34
 ## SavedVariables: MunkeHubDB
 
 MunkeHub.lua
