@@ -33,3 +33,5 @@ Thumbs.db
 api/icons_test/
 api/preview_*.json
 api/preview.db
+
+.brave-test/

@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.36",
+    date: "2026-11-20",
+    entries: [
+      "Site now has a favicon (the 🐒 crest) — fixes a console 404 on every page load.",
+    ],
+  },
+  {
     version: "0.8.35",
     date: "2026-11-20",
     entries: [

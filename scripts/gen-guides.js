@@ -14,13 +14,13 @@ const scraped = JSON.parse(jsonText);
 const META = {
   alchemy: { name: "Alchemy", icon: "trade_alchemy", blurb: "Cheapest 1-300 route with full shopping lists. Pairs with Herbalism — grow your own herbs and save gold." },
   blacksmithing: { name: "Blacksmithing", icon: "trade_blacksmithing", blurb: "1-300 route covering armor and weapon smithing, plus specializations." },
-  enchanting: { name: "Enchanting", icon: "trade_enchanting", blurb: "1-300 route with a disenchanting loop — level Enchanting while leveling other professions." },
+  enchanting: { name: "Enchanting", icon: "trade_engraving", blurb: "1-300 route with a disenchanting loop — level Enchanting while leveling other professions." },
   engineering: { name: "Engineering", icon: "trade_engineering", blurb: "1-300 route with the cheapest parts, plus specializations." },
   leatherworking: { name: "Leatherworking", icon: "trade_leatherworking", blurb: "1-300 route for light/medium/heavy leathers, plus specializations. Pairs with Skinning." },
   tailoring: { name: "Tailoring", icon: "trade_tailoring", blurb: "1-300 route — cheap cloth crafts, no gathering needed." },
   mining: { name: "Mining", icon: "trade_mining", blurb: "Zone-by-zone mining route 1-300 with smelting shortcuts and skill bonus items." },
   herbalism: { name: "Herbalism", icon: "trade_herbalism", blurb: "Zone-by-zone herb route 1-300 with skill bonus items." },
-  skinning: { name: "Skinning", blurb: "Zone-by-zone skinning route 1-300 with skill requirements per rank.", icon: "trade_skinning" },
+  skinning: { name: "Skinning", blurb: "Zone-by-zone skinning route 1-300 with skill requirements per rank.", icon: "inv_misc_pelt_wolf_01" },
   "first-aid": { name: "First Aid", icon: "trade_alchemy", blurb: "1-300 route — bandages from linen to runecloth, cheapest cloth first." },
   fishing: { name: "Fishing", icon: "trade_fishing", blurb: "Zone-by-zone fishing route 1-300 — pair with Cooking for free food." },
 };

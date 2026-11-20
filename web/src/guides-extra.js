@@ -1192,7 +1192,7 @@ export const GUIDES_EXTRA = [
   {
     "id": "enchanting",
     "name": "Enchanting",
-    "icon": "trade_enchanting",
+    "icon": "trade_engraving",
     "blurb": "1-300 route with a disenchanting loop — level Enchanting while leveling other professions.",
     "shopping": [
       {
@@ -3849,7 +3849,7 @@ export const GUIDES_EXTRA = [
   {
     "id": "skinning",
     "name": "Skinning",
-    "icon": "trade_skinning",
+    "icon": "inv_misc_pelt_wolf_01",
     "blurb": "Zone-by-zone skinning route 1-300 with skill requirements per rank.",
     "shopping": [],
     "steps": [],
