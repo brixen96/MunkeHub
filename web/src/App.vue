@@ -739,6 +739,16 @@
                   {{ lfmPosted === q.id ? '✓ Posted' : lfmFailed === q.id ? '✗ check token' : '📣 Post LFM' }}
                 </button>
               </div>
+              <div v-if="isDungeonQuest(q)" class="qc-group">
+                <template v-if="groupMates(q).length">
+                  <span class="qc-group-label">👥 In range:</span>
+                  <span v-for="m in groupMates(q)" :key="m.name" class="qc-mate"
+                        :class="{ on: isOnline(m.name) }">
+                    {{ isOnline(m.name) ? '●' : '○' }} {{ m.name }} <i>{{ m.level }}</i>
+                  </span>
+                </template>
+                <span v-else class="qc-group-none">👥 nobody in the guild is near this level — post an LFM</span>
+              </div>
               <div v-if="q.objectives && q.objectives.length" class="qc-objs">
                 <div v-for="(o, oi) in q.objectives" :key="oi" class="qc-obj"
                      :class="{ done: o.done }">
@@ -1285,6 +1295,10 @@
                 Crafting Orders<span v-if="board && board.orders.filter(o => o.status !== 'done').length">
                   ({{ board.orders.filter(o => o.status !== 'done').length }})</span>
               </button>
+              <button class="chip" :class="{ active: boardTab === 'lfm' }" @click="boardTab = 'lfm'">
+                Looking for group<span v-if="board && board.lfm && board.lfm.filter(o => o.status !== 'done').length">
+                  ({{ board.lfm.filter(o => o.status !== 'done').length }})</span>
+              </button>
               <button class="chip" :class="{ active: boardTab === 'events' }" @click="boardTab = 'events'">
                 Events<span v-if="board && board.events.length"> ({{ board.events.length }})</span>
               </button>
@@ -1325,6 +1339,30 @@
                 <button v-if="o.status === 'claimed'" class="chip" @click="setOrderStatus(o, 'done')">Done</button>
                 <button v-if="o.status !== 'done'" class="chip" @click="setOrderStatus(o, 'open')">Unclaim</button>
                 <button class="star" title="Remove order" @click="removeOrder(o)">✕</button>
+              </div>
+            </div>
+          </template>
+
+          <!-- looking for group: dungeon/quest groups (posted from Quests tab) -->
+          <template v-else-if="boardTab === 'lfm'">
+            <p v-if="!board.lfm || !board.lfm.length" class="muted">
+              No groups forming right now — post one from a dungeon quest in the Quests tab.
+            </p>
+            <div v-for="o in (board.lfm || [])" :key="o.id" class="board-card" :class="{ done: o.status === 'done' }">
+              <div class="bc-main">
+                <b>🏰 {{ o.item_name }}</b>
+                <span v-if="o.note" class="bc-note">{{ o.note }}</span>
+              </div>
+              <div class="bc-side">
+                <span v-if="o.claimed_by" class="bc-claim">👥 {{ o.claimed_by }}</span>
+                <span v-else-if="o.status === 'done'" class="bc-done">✓ done</span>
+                <button v-if="o.status !== 'done'" class="chip"
+                        :disabled="!rsvpName || (o.claimed_by || '').split(',').map(s => s.trim()).includes(rsvpName)"
+                        @click="setOrderStatus(o, 'claimed')">I'm in</button>
+                <button v-if="o.status !== 'done' && rsvpName && (o.claimed_by || '').split(',').map(s => s.trim()).includes(rsvpName)"
+                        class="chip" @click="setOrderStatus(o, 'open')">I'm out</button>
+                <button v-if="o.status !== 'done'" class="chip" @click="setOrderStatus(o, 'done')">Done</button>
+                <button class="star" title="Remove" @click="removeOrder(o)">✕</button>
               </div>
             </div>
           </template>
@@ -1647,6 +1685,7 @@ export default {
       board: null, // {orders: [], events: []}
       boardTab: "orders",
       boardError: "",
+      // (board.lfm comes from the API — LFM posts split out of orders)
       newOrder: { item_name: "", qty: 1, wanted_by: "", note: "" },
       newEvent: { title: "", when_text: "", note: "" },
       rsvpName: localStorage.getItem("munkehub_rsvp_name") || "",
@@ -2435,6 +2474,14 @@ export default {
     // Quest picked up since the last time this character's log was viewed.
     isNewQuest(q) {
       return this.newQuestIds.includes(q.id);
+    },
+    // Guildies within ±5 levels of a group quest (excluding the selected
+    // character) — who could realistically run this dungeon with you.
+    groupMates(q) {
+      return (this.characters || [])
+        .filter((c) => c.name !== this.questName && Math.abs((c.level || 0) - q.level) <= 5)
+        .sort((a, b) => (b.level || 0) - (a.level || 0))
+        .slice(0, 6);
     },
     // Needs a group: Dungeon/Raid tag or a suggested group size ≥ 2.
     isDungeonQuest(q) {
@@ -3603,6 +3650,25 @@ main {
   padding: 0 0.4rem;
 }
 .qc-lfm { font-size: 0.72rem; margin-left: auto; }
+.qc-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+}
+.qc-group-label { color: var(--muted); font-weight: 700; }
+.qc-mate {
+  color: var(--muted);
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+}
+.qc-mate.on { color: #7fd18a; border-color: rgba(127, 209, 138, 0.5); }
+.qc-mate i { font-style: normal; opacity: 0.7; font-size: 0.72rem; }
+.qc-group-none { color: var(--muted); font-style: italic; }
 .ql-head {
   display: flex;
   align-items: center;

@@ -2,6 +2,14 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.30",
+    date: "2026-11-20",
+    entries: [
+      "Quests: dungeon quests show who in the guild is close enough to group up (with online dots).",
+      "Guild Board: new 'Looking for group' section — LFM posts live there now, with 'I'm in' sign-ups for the whole group.",
+    ],
+  },
+  {
     version: "0.8.29",
     date: "2026-11-20",
     entries: [

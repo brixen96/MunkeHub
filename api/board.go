@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -44,8 +45,11 @@ type eventRow struct {
 }
 
 // boardData serves orders + events (with RSVPs) in one call.
+// LFM posts (created from the Quests tab) are split into their own "lfm"
+// array so they don't crowd out crafting orders.
 func boardData(c *gin.Context, db *sql.DB) {
 	orders := []orderRow{}
+	lfm := []orderRow{}
 	rows, err := db.Query(`
 		SELECT id, item_id, item_name, qty, wanted_by, note, status, claimed_by, created_at
 		FROM orders ORDER BY (status = 'done'), id DESC LIMIT 100`)
@@ -54,7 +58,11 @@ func boardData(c *gin.Context, db *sql.DB) {
 			var o orderRow
 			if rows.Scan(&o.ID, &o.ItemID, &o.ItemName, &o.Qty, &o.WantedBy,
 				&o.Note, &o.Status, &o.ClaimedBy, &o.CreatedAt) == nil {
-				orders = append(orders, o)
+				if strings.HasPrefix(o.ItemName, "LFM: ") {
+					lfm = append(lfm, o)
+				} else {
+					orders = append(orders, o)
+				}
 			}
 		}
 		rows.Close()
@@ -93,7 +101,7 @@ func boardData(c *gin.Context, db *sql.DB) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"orders": orders, "events": events})
+	c.JSON(http.StatusOK, gin.H{"orders": orders, "lfm": lfm, "events": events})
 }
 
 // createOrder posts a crafting request ("I need 40 Thorium Bars").
@@ -135,16 +143,39 @@ func setOrderStatus(c *gin.Context, db *sql.DB) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if in.Status != "open" && in.Status != "claimed" && in.Status != "done" {
+	if in.Status != "open" && in.Status != "done" && in.Status != "claimed" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad status"})
 		return
 	}
+	// LFM posts ("LFM: ...") are group sign-ups: claiming ADDS your name to
+	// the list, leaving removes only yours. Crafting orders stay single-claim.
+	var cur, itemName string
+	_ = db.QueryRow(`SELECT claimed_by, item_name FROM orders WHERE id = ?`, id).
+		Scan(&cur, &itemName)
+	isLFM := strings.HasPrefix(itemName, "LFM: ")
 	claimed := in.Name
-	if in.Status == "open" {
+	switch {
+	case in.Status == "open" && isLFM && cur != "":
+		// "I'm out" — drop just this name, keep the rest of the group
+		out := []string{}
+		for _, n := range strings.Split(cur, ",") {
+			if n = strings.TrimSpace(n); n != "" && n != in.Name {
+				out = append(out, n)
+			}
+		}
+		claimed = strings.Join(out, ", ")
+	case in.Status == "open":
 		claimed = ""
+	case in.Status == "claimed" && isLFM && cur != "" && !strings.Contains(cur, in.Name):
+		claimed = cur + ", " + in.Name
+	}
+	// LFM: leaving shouldn't close the group while others are still signed up
+	status := in.Status
+	if isLFM && status == "open" && claimed != "" {
+		status = "claimed"
 	}
 	res, err := db.Exec(`UPDATE orders SET status = ?, claimed_by = ? WHERE id = ?`,
-		in.Status, claimed, id)
+		status, claimed, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
