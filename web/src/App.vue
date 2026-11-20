@@ -749,6 +749,27 @@
                 </template>
                 <span v-else class="qc-group-none">👥 nobody in the guild is near this level — post an LFM</span>
               </div>
+              <!-- who else has this quest in their own log -->
+              <div v-if="questPartners(q).length" class="qc-group">
+                <span class="qc-group-label">🤝 also on this quest:</span>
+                <span v-for="n in questPartners(q)" :key="n" class="qc-mate"
+                      :class="{ on: isOnline(n) }">
+                  {{ isOnline(n) ? '●' : '○' }} {{ n }}
+                </span>
+              </div>
+              <!-- live LFM post for this quest: who signed up + join/leave -->
+              <div v-if="lfmFor(q)" class="qc-group">
+                <span class="qc-group-label">📣 LFM:</span>
+                <span v-if="lfmRoster(lfmFor(q)).length" class="qc-mate on">
+                  {{ lfmRoster(lfmFor(q)).join(', ') }}
+                </span>
+                <span v-else class="qc-mate">nobody signed up yet</span>
+                <button v-if="postToken && rsvpName" class="link-btn qc-lfm"
+                        :disabled="lfmJoinState === lfmFor(q).id"
+                        @click="toggleLfm(q, lfmFor(q))">
+                  {{ lfmRoster(lfmFor(q)).includes(rsvpName) ? '✓ You\'re in — leave' : 'Join' }}
+                </button>
+              </div>
               <div v-if="q.objectives && q.objectives.length" class="qc-objs">
                 <div v-for="(o, oi) in q.objectives" :key="oi" class="qc-obj"
                      :class="{ done: o.done }">
@@ -1704,6 +1725,8 @@ export default {
       newQuestIds: [], // ids new since the last visit (shown as NEW this session)
       lfmPosted: 0, // quest id we just posted an LFM for
       lfmFailed: 0, // quest id where the LFM post was rejected (bad token)
+      questOverlap: null, // name -> [quest ids] shared with the selected char
+      lfmJoinState: 0, // order id we just joined/left (flash feedback)
       // buy list cart (aggregated shopping list minus bags)
       cartOpen: false,
       // --- Auction House tab ---
@@ -2450,8 +2473,45 @@ export default {
       this.seenQuests[this.questName] = current;
       saveSeenQuests(this.seenQuests);
       this.lfmPosted = 0;
+      // who else is on these quests (group-up chips) + live LFM posts
+      this.questOverlap = null;
+      api.questOverlap(this.questName)
+        .then((r) => { this.questOverlap = r.overlap || {}; })
+        .catch(() => { this.questOverlap = {}; });
+      this.loadBoard();
       // advice loads lazily with the log (cached 1h server-side)
       this.loadQuestAdvice(false);
+    },
+    // Guildies who have THIS quest in their own log (from /quests/overlap).
+    questPartners(q) {
+      if (!this.questOverlap) return [];
+      return Object.entries(this.questOverlap)
+        .filter(([, ids]) => ids.includes(q.id))
+        .map(([n]) => n);
+    },
+    // The board's LFM post for a quest (posted from this tab), if any.
+    lfmFor(q) {
+      if (!this.board || !this.board.lfm) return null;
+      const title = `LFM: ${q.title} (lvl ${q.level})`;
+      return this.board.lfm.find((o) => o.item_name === title) || null;
+    },
+    lfmRoster(o) {
+      return (o.claimed_by || "").split(",").map((s) => s.trim()).filter(Boolean);
+    },
+    // Join/leave an LFM from the quest card (same multi-claim semantics as
+    // the Board tab — the API appends/removes just this name).
+    async toggleLfm(q, o) {
+      if (!this.postToken || !this.rsvpName) return;
+      const joined = this.lfmRoster(o).includes(this.rsvpName);
+      const ok = await api
+        .boardOrderStatus(o.id, { name: this.rsvpName, status: joined ? "open" : "claimed" }, this.postToken)
+        .then((res) => res && !res.error && res.ok)
+        .catch(() => false);
+      if (ok) {
+        this.lfmJoinState = o.id;
+        await this.loadBoard();
+        setTimeout(() => { if (this.lfmJoinState === o.id) this.lfmJoinState = 0; }, 2500);
+      }
     },
     async loadQuestAdvice(refresh) {
       if (!this.questName) return;

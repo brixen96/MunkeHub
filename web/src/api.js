@@ -9,7 +9,7 @@ async function get(path) {
 }
 
 // Bump on every release — shown in the footer so Emil can verify versions.
-export const WEB_VERSION = "0.8.30";
+export const WEB_VERSION = "0.8.31";
 
 export const api = {
   health: () => fetch("/health").then((r) => r.json()),
@@ -71,6 +71,8 @@ export const api = {
   // AI quest advisor — cached 1h server-side; refresh=1 forces a new call.
   questAdvice: (name, refresh = false) =>
     get(`/quests/advice?name=${encodeURIComponent(name)}${refresh ? "&refresh=1" : ""}`),
+  // Which quest IDs other characters share with this one (group-up chips).
+  questOverlap: (name) => get(`/quests/overlap?name=${encodeURIComponent(name)}`),
   // Leveling route brackets for a level + race (facts from guides.md sources).
   leveling: (level, race) =>
     get(`/leveling?level=${level}&race=${encodeURIComponent(race || "")}`),

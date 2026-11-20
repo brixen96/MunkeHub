@@ -25,7 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.30"
+const version = "0.8.31"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -110,6 +110,7 @@ func main() {
 		// Quest log: helper uploads (token), website reads + AI advice (public)
 		api.POST("/characters/quests", requireToken(db), func(c *gin.Context) { upsertQuests(c, db) })
 		api.GET("/quests", func(c *gin.Context) { questLogHandler(c, db) })
+		api.GET("/quests/overlap", func(c *gin.Context) { questOverlapHandler(c, db) })
 		api.GET("/quests/advice", func(c *gin.Context) { questAdviceHandler(c, db) })
 		// Leveling route facts (scraped from guides.md sources — facts only)
 		api.GET("/leveling", func(c *gin.Context) { levelingHandler(c) })

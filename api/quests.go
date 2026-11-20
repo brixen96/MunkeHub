@@ -347,6 +347,59 @@ func questAdviceHandler(c *gin.Context, db *sql.DB) {
 	c.Data(http.StatusOK, "application/json", out)
 }
 
+// questOverlapHandler serves GET /api/v1/quests/overlap?name=First — which
+// quest IDs every OTHER character with a synced log shares with this one.
+// Powers "also on this quest" chips on the Quests tab (group-up flow).
+func questOverlapHandler(c *gin.Context, db *sql.DB) {
+	name := c.Query("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
+		return
+	}
+	var body string
+	if err := db.QueryRow(`SELECT body FROM quest_logs WHERE name = ?`, name).Scan(&body); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no quest log synced yet"})
+		return
+	}
+	var mine questLogIn
+	if err := json.Unmarshal([]byte(body), &mine); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "bad quest log body"})
+		return
+	}
+	mineIDs := map[int64]bool{}
+	for _, q := range mine.Quests {
+		mineIDs[q.ID] = true
+	}
+
+	out := map[string][]int64{}
+	rows, err := db.Query(`SELECT name, body FROM quest_logs WHERE name != ?`, name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var otherName, otherBody string
+		if rows.Scan(&otherName, &otherBody) != nil {
+			continue
+		}
+		var other questLogIn
+		if json.Unmarshal([]byte(otherBody), &other) != nil {
+			continue
+		}
+		shared := []int64{}
+		for _, q := range other.Quests {
+			if mineIDs[q.ID] {
+				shared = append(shared, q.ID)
+			}
+		}
+		if len(shared) > 0 {
+			out[otherName] = shared
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"name": name, "overlap": out})
+}
+
 // questLogNames lists characters that have a synced quest log (for the
 // website's character selector).
 func questLogNames(db *sql.DB) []string {

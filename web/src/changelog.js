@@ -2,6 +2,14 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.31",
+    date: "2026-11-20",
+    entries: [
+      "Quests: 'also on this quest' — guild members who have the same quest in their own log, with online dots.",
+      "Quests: live LFM status right on the quest card — see who signed up and join or leave without leaving the tab.",
+    ],
+  },
+  {
     version: "0.8.30",
     date: "2026-11-20",
     entries: [
