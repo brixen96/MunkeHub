@@ -82,6 +82,9 @@ func upsertQuests(c *gin.Context, db *sql.DB) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	// the log changed — drop the cached advice so the next view reflects the
+	// new state instead of serving hour-old rankings for a fresh log
+	_, _ = db.Exec(`DELETE FROM ah_cache WHERE key = ?`, questAdviceCacheKey(in.Name))
 	c.JSON(http.StatusOK, gin.H{"ok": true, "quests": len(in.Quests)})
 }
 

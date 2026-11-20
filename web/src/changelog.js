@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.35",
+    date: "2026-11-20",
+    entries: [
+      "Quest Helper AI: advice refreshes as soon as your quest log syncs — no more hour-old recommendations after you turn quests in.",
+    ],
+  },
+  {
     version: "0.8.34",
     date: "2026-11-20",
     entries: [
