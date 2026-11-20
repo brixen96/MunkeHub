@@ -82,14 +82,14 @@ func boardData(c *gin.Context, db *sql.DB) {
 	}
 
 	if len(events) > 0 {
-		rrows, err := db.Query(`SELECT event_id, name, status FROM event_rsvps`)
+		rrows, err := db.Query(`SELECT event_id, name, status, role FROM event_rsvps`)
 		if err == nil {
 			byID := map[int64][]map[string]any{}
 			for rrows.Next() {
 				var eid int64
-				var name, status string
-				if rrows.Scan(&eid, &name, &status) == nil {
-					byID[eid] = append(byID[eid], map[string]any{"name": name, "status": status})
+				var name, status, role string
+				if rrows.Scan(&eid, &name, &status, &role) == nil {
+					byID[eid] = append(byID[eid], map[string]any{"name": name, "status": status, "role": role})
 				}
 			}
 			rrows.Close()
@@ -229,7 +229,8 @@ func deleteEvent(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// rsvpEvent upserts one member's answer (yes | maybe | no).
+// rsvpEvent upserts one member's answer (yes | maybe | no) plus an optional
+// raid role (tank | heal | dps) — "who's signing up as what" for raid nights.
 func rsvpEvent(c *gin.Context, db *sql.DB) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -239,6 +240,7 @@ func rsvpEvent(c *gin.Context, db *sql.DB) {
 	var in struct {
 		Name   string `json:"name" binding:"required"`
 		Status string `json:"status" binding:"required"`
+		Role   string `json:"role"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -248,11 +250,16 @@ func rsvpEvent(c *gin.Context, db *sql.DB) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad status"})
 		return
 	}
+	in.Role = strings.ToLower(strings.TrimSpace(in.Role))
+	if in.Role != "" && in.Role != "tank" && in.Role != "heal" && in.Role != "dps" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bad role"})
+		return
+	}
 	_, err = db.Exec(`
-		INSERT INTO event_rsvps (event_id, name, status, updated_at)
-		VALUES (?, ?, ?, datetime('now'))
-		ON CONFLICT (event_id, name) DO UPDATE SET status = excluded.status, updated_at = datetime('now')`,
-		id, in.Name, in.Status)
+		INSERT INTO event_rsvps (event_id, name, status, role, updated_at)
+		VALUES (?, ?, ?, ?, datetime('now'))
+		ON CONFLICT (event_id, name) DO UPDATE SET status = excluded.status, role = excluded.role, updated_at = datetime('now')`,
+		id, in.Name, in.Status, in.Role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

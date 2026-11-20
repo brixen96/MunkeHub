@@ -2,6 +2,13 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.33",
+    date: "2026-11-20",
+    entries: [
+      "Guild Board: raid roles — sign up for events as 🛡 tank, 💚 heal or ⚔ DPS, with a live breakdown of who's going as what.",
+    ],
+  },
+  {
     version: "0.8.32",
     date: "2026-11-20",
     entries: [

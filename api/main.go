@@ -25,7 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.32"
+const version = "0.8.33"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).
@@ -289,6 +289,7 @@ func migrate(db *sql.DB) error {
 			event_id   INTEGER NOT NULL,
 			name       TEXT NOT NULL,
 			status     TEXT NOT NULL DEFAULT 'yes',
+			role       TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 			PRIMARY KEY (event_id, name)
 		);
@@ -316,6 +317,7 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE characters ADD COLUMN professions TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE characters ADD COLUMN gold INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE characters ADD COLUMN prof_levels TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE event_rsvps ADD COLUMN role TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.Exec(alter); err != nil &&
 			!strings.Contains(err.Error(), "duplicate column") {

@@ -1430,6 +1430,17 @@
                 </button>
                 <button class="star" title="Remove event" @click="removeEvent(e)">✕</button>
               </div>
+              <!-- raid roles: sign up as tank / heal / dps -->
+              <div class="role-row">
+                <span class="role-label">Role:</span>
+                <button v-for="r in raidRoles" :key="r.key" class="role-chip"
+                        :class="{ on: myRole(e) === r.key }"
+                        :title="'Sign up as ' + r.name"
+                        @click="setRole(e, r.key)">
+                  {{ r.icon }} {{ r.name }}<i v-if="roleCount(e, r.key)">{{ roleCount(e, r.key) }}</i>
+                </button>
+              </div>
+              <p v-if="roleBreak(e)" class="role-break">{{ roleBreak(e) }}</p>
             </div>
           </template>
         </div>
@@ -1717,7 +1728,12 @@ export default {
       board: null, // {orders: [], events: []}
       boardTab: "orders",
       boardError: "",
-      // (board.lfm comes from the API — LFM posts split out of orders)
+      // raid roles for event sign-ups (stored per RSVP on the API)
+      raidRoles: [
+        { key: "tank", name: "Tank", icon: "🛡" },
+        { key: "heal", name: "Heal", icon: "💚" },
+        { key: "dps", name: "DPS", icon: "⚔" },
+      ],
       newOrder: { item_name: "", qty: 1, wanted_by: "", note: "" },
       newEvent: { title: "", when_text: "", note: "" },
       rsvpName: localStorage.getItem("munkehub_rsvp_name") || "",
@@ -2733,6 +2749,45 @@ export default {
     myRsvp(e) {
       const me = (e.rsvps || []).find((r) => r.name === this.rsvpName.trim());
       return me ? me.status : "";
+    },
+    // --- raid roles (tank / heal / dps sign-ups) --------------------------
+    myRole(e) {
+      const me = (e.rsvps || []).find((r) => r.name === this.rsvpName.trim());
+      return me && me.role ? me.role : "";
+    },
+    roleCount(e, key) {
+      return (e.rsvps || []).filter((r) => r.role === key && r.status !== "no").length;
+    },
+    // Toggle my role: clicking the active one clears it. Keeps my current
+    // attendance status (going/maybe) — only the role changes.
+    async setRole(e, key) {
+      if (!this.rsvpName.trim()) {
+        this.boardError = "Pick your name first (top of the board).";
+        return;
+      }
+      localStorage.setItem("munkehub_rsvp_name", this.rsvpName.trim());
+      const status = this.myRsvp(e) || "yes";
+      const role = this.myRole(e) === key ? "" : key;
+      try {
+        await api.boardRsvp(e.id, { name: this.rsvpName.trim(), status, role }, this.postToken);
+        await this.loadBoard();
+      } catch {
+        this.boardError = "Role sign-up failed — check your member token.";
+      }
+    },
+    // "2 going: 1 tank, 1 heal — 0 DPS open" style summary for raid nights.
+    roleBreak(e) {
+      const going = (e.rsvps || []).filter((r) => r.status === "yes");
+      if (!going.length) return "";
+      const parts = this.raidRoles
+        .map((r) => {
+          const n = going.filter((x) => x.role === r.key).length;
+          return n ? `${n} ${r.name.toLowerCase()}` : "";
+        })
+        .filter(Boolean);
+      const noRole = going.filter((x) => !x.role).length;
+      if (noRole) parts.push(`${noRole} no role`);
+      return `Going: ${parts.join(', ')}`;
     },
     // --- item detail popup -------------------------------------------------
     async openItem(id, name) {
@@ -4686,6 +4741,53 @@ details[open] > summary.guide-h4::after {
   background: rgba(224, 122, 122, 0.12);
   border-color: rgba(224, 122, 122, 0.5);
   color: #e07a7a;
+}
+/* raid roles: tank / heal / dps sign-ups on event cards */
+.role-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.role-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  font-weight: 700;
+}
+.role-chip {
+  background: #14131a;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.15rem 0.65rem;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.role-chip:hover {
+  border-color: var(--gold);
+  color: var(--ink);
+}
+.role-chip.on {
+  background: rgba(200, 164, 77, 0.15);
+  border-color: var(--gold);
+  color: var(--gold-bright);
+  font-weight: 700;
+}
+.role-chip i {
+  font-style: normal;
+  margin-left: 0.35rem;
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+.role-break {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--muted);
 }
 /* ---------------- item popup ---------------- */
 .popup-backdrop {
