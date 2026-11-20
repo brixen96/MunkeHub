@@ -25,7 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.8.31"
+const version = "0.8.32"
 
 // helperVersion MUST match `version` in helper/main.go — it tells helpers
 // whether a newer exe is available (see scripts/build-download.ps1).

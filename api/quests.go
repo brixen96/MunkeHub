@@ -166,6 +166,7 @@ func questLogHandler(c *gin.Context, db *sql.DB) {
 		"xp":         log.XP,
 		"xp_max":     log.XPMax,
 		"talent":     talent,
+		"unlocks":    unlocksFor(log.Class, log.Level),
 		"quests":     log.Quests,
 		"updated_at": updatedAt,
 	})
@@ -198,6 +199,7 @@ type questDigest struct {
 	Route   []levelingBracket `json:"leveling_route,omitempty"`
 	Talent  *talentBracket    `json:"talent_bracket,omitempty"`
 	TalentSpec string         `json:"talent_spec,omitempty"`
+	NextUnlock *unlock        `json:"next_unlock,omitempty"` // upcoming power spike
 }
 
 func buildQuestDigest(db *sql.DB, name string) (questDigest, error) {
@@ -223,6 +225,10 @@ func buildQuestDigest(db *sql.DB, name string) (questDigest, error) {
 		d.Talent = b
 		d.TalentSpec = g.Spec
 	}
+
+	// next unlock (facts from method.gg key-spell tables) — lets the advisor
+	// nudge "2 levels from Shadowform" when it fits
+	d.NextUnlock = nextUnlock(log.Class, log.Level)
 
 	// which quest items are already sitting in bags (helps "you can turn in now")
 	bags := bagCountsFor(db, name)
@@ -279,6 +285,7 @@ Rules:
 - "avoid" = quests to skip or defer: group-only (Group/Raid tags) while solo, escort chains that waste time, or objectives needing items they don't have. If nothing should be avoided, return an empty array.
 - "drop" = quests that are pure XP waste and safe to abandon: 8+ levels below the character (grey). Only list quests that are clearly obsolete — never drop quests with partial progress worth finishing. Empty array if none.
 - The digest has "talent_bracket" (facts from class leveling guides) — when relevant, you may reference its hint in "summary" or a "why", but keep talent names and levels exact. Never invent talents.
+- The digest has "next_unlock" (facts from class key-spell tables) — if it's close (within ~3 levels) and relevant, you may mention it in "summary" (e.g. "2 levels from Shadowform"). Never invent unlocks.
 - If their quest log is empty or nearly empty, use leveling_route to say where to go next: name the zone(s) from the route bracket matching their level. If the log has plenty of quests, the route is context only.
 - Quest titles are the source of truth. Use vanilla WoW knowledge for zones and follow-ups. If a quest title looks custom to WoW: Forever and you don't know it, say so in "why" instead of inventing details.
 - Keep every "why" under 16 words, plain English.

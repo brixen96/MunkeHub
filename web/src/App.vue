@@ -698,6 +698,17 @@
             <p class="route-src">Talent facts from method.gg class guides (see guides.md) — names and levels only.</p>
           </div>
 
+          <!-- coming up: unlocks in the next 10 levels (method.gg facts) -->
+          <div v-if="quests && quests.unlocks && quests.unlocks.length" class="unlock-card">
+            <h3 class="quest-h3">📜 Coming up</h3>
+            <div v-for="(u, ui) in quests.unlocks" :key="ui" class="unlock-row">
+              <span class="route-lvl">{{ u.level }}</span>
+              <span class="unlock-spell">{{ u.spell }}</span>
+              <span v-if="u.note" class="unlock-note">{{ u.note }}</span>
+            </div>
+            <p class="route-src">Unlock facts from method.gg class guides (see guides.md) — levels and spell names only.</p>
+          </div>
+
           <!-- where to go: leveling route for this level (Tier 2) -->
           <div v-if="levelRoute && levelRoute.length" class="route-card">
             <h3 class="quest-h3">🗺 Where to go next</h3>
@@ -3646,6 +3657,28 @@ main {
   margin-bottom: 0.3rem;
 }
 .talent-hint { font-size: 0.9rem; line-height: 1.5; }
+
+/* coming up: unlocks in the next 10 levels */
+.unlock-card {
+  background: var(--stone);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  margin-bottom: 1rem;
+}
+.unlock-card .quest-h3 { margin-top: 0; }
+.unlock-row {
+  display: grid;
+  grid-template-columns: 44px auto 1fr;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid rgba(58, 56, 64, 0.5);
+  font-size: 0.88rem;
+}
+.unlock-row:last-of-type { border-bottom: 0; }
+.unlock-spell { font-weight: 700; color: var(--gold-bright); }
+.unlock-note { color: var(--muted); font-size: 0.8rem; }
 
 .quest-h3 {
   font-size: 0.95rem;

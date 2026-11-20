@@ -2,6 +2,14 @@
 // Newest first. Keep entries short and guild-friendly (plain English).
 export const CHANGELOG = [
   {
+    version: "0.8.32",
+    date: "2026-11-20",
+    entries: [
+      "Quests: 'Coming up' card — the spells and abilities you unlock in your next 10 levels, from the class guides (don't miss Shadowform at 40!).",
+      "Quest Helper AI: knows your next unlock, so it can nudge you when a big power spike is close.",
+    ],
+  },
+  {
     version: "0.8.31",
     date: "2026-11-20",
     entries: [
